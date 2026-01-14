@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<a href="{{ url_for('search_reports') }}" class="text-decoration-none">← Back</a>
+<h4 class="mt-2">Create Report</h4>
+
+<form class="card shadow-sm p-3 mt-3" method="post">
+  <div class="row g-2">
+    <div class="col-md-3">
+      <label class="form-label">Report ID</label>
+      <input class="form-control" name="report_id" placeholder="R005" required>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label">Department</label>
+      <select class="form-select" name="dept_id">
+        <option value="">(optional)</option>
+        {% for d in depts %}
+          <option value="{{ d.dept_id }}">{{ d.dept_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label">Project</label>
+      <input class="form-control" name="project" placeholder="Delta" required>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label">Report Date</label>
+      <input class="form-control" type="date" name="report_date" required>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Week</label>
+      <input class="form-control" name="week" placeholder="W02" required>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Owner</label>
+      <input class="form-control" name="owner" placeholder="GPSE4" required>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Type</label>
+      <select class="form-select" name="report_type">
+        <option>Weekly</option>
+        <option>Incident</option>
+        <option>Leadership</option>
+      </select>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Status</label>
+      <select class="form-select" name="status">
+        <option>Draft</option>
+        <option>Final</option>
+      </select>
+    </div>
+
+    <div class="col-md-12">
+      <label class="form-label">Storage URL (dummy now; SharePoint later)</label>
+      <input class="form-control" name="storage_url" placeholder="file:///C:/dummy/report.pptx or https://sharepoint/...">
+    </div>
+
+    <div class="col-12">
+      <button class="btn btn-primary mt-2">Create</button>
+    </div>
+  </div>
+</form>
+
+{% endblock %}
