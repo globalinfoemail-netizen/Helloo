@@ -1,0 +1,46 @@
+<style>
+  body { font-family: Arial, sans-serif; background:#f4f6f8; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  .card { background:#fff; border:1px solid #e6e8ef; border-radius:12px; padding:16px; box-shadow:0 6px 18px rgba(0,0,0,.06); }
+  .shadow-sm { box-shadow:0 6px 18px rgba(0,0,0,.06); }
+
+  .row { display:flex; flex-wrap:wrap; gap:12px; }
+  .col-md-6 { flex: 1 1 520px; }
+  .col-md-4 { flex: 1 1 240px; }
+  .col-6 { flex: 1 1 240px; }
+  .col-12 { flex: 1 1 100%; }
+
+  .text-muted { color:#6b7280; }
+  .mb-0 { margin-bottom:0; }
+  .mt-2 { margin-top:8px; }
+  .mt-3 { margin-top:16px; }
+  .mb-2 { margin-bottom:10px; }
+
+  .btn { display:inline-block; padding:10px 14px; border-radius:10px; border:1px solid #d8dbe6; background:#fff; text-decoration:none; cursor:pointer; }
+  .btn-primary { background:#1f5eff; border-color:#1f5eff; color:#fff; }
+  .btn-dark { background:#111; border-color:#111; color:#fff; }
+  .btn-outline-success { border-color:#118a4f; color:#118a4f; background:#fff; }
+
+  .form-control, textarea, .form-select { width:100%; padding:10px; border:1px solid #d8dbe6; border-radius:10px; background:#fff; }
+  textarea { resize: vertical; }
+
+  .badge { padding:6px 10px; border-radius:999px; font-size:12px; display:inline-block; }
+  .text-bg-success { background:#d8f5e6; color:#0b5; }
+  .text-bg-warning { background:#fff2cc; color:#8a6d00; }
+  .text-bg-danger { background:#ffe0e0; color:#b00020; }
+  .text-bg-secondary { background:#e9ecef; color:#333; }
+</style>
+
+
+<style>
+body { font-family: Arial, sans-serif; background: #f4f6f8; }
+.container { max-width: 1200px; margin: auto; }
+.card { background: #fff; padding: 16px; margin-bottom: 16px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.1); }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px; border-bottom: 1px solid #ddd; }
+th { background: #f1f1f1; }
+.btn { padding: 6px 12px; border: 1px solid #333; background: #eee; border-radius: 4px; text-decoration: none; }
+.badge-success { background: green; color: white; padding: 4px 6px; border-radius: 4px; }
+.badge-warning { background: orange; color: black; padding: 4px 6px; border-radius: 4px; }
+</style>
