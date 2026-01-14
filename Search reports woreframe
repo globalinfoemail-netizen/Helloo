@@ -1,0 +1,114 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">Search Reports</h4>
+    <div class="text-muted">Search, filter, select, bulk actions (demo)</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-success" href="{{ url_for('export_reports_csv') }}">Export Reports CSV</a>
+    <a class="btn btn-primary" href="{{ url_for('create') }}">+ Create Report</a>
+  </div>
+</div>
+
+<form class="card p-3 shadow-sm mb-3" method="get">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">Search</label>
+      <input class="form-control" name="q" value="{{ request.args.get('q','') }}" placeholder="report id / project / owner / type">
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Department</label>
+      <select class="form-select" name="dept_id">
+        <option value="">All</option>
+        {% for d in depts %}
+          <option value="{{ d.dept_id }}" {% if request.args.get('dept_id','') == (d.dept_id|string) %}selected{% endif %}>
+            {{ d.dept_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Report Type</label>
+      <select class="form-select" name="report_type">
+        <option value="">All</option>
+        {% for t in types %}
+          <option value="{{ t }}" {% if request.args.get('report_type','') == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Date From</label>
+      <input class="form-control" type="date" name="date_from" value="{{ request.args.get('date_from','') }}">
+    </div>
+
+    <div class="col-md-2">
+      <label class="form-label">Date To</label>
+      <input class="form-control" type="date" name="date_to" value="{{ request.args.get('date_to','') }}">
+    </div>
+
+    <div class="col-12">
+      <button class="btn btn-dark mt-2">Apply</button>
+      <a class="btn btn-outline-secondary mt-2" href="{{ url_for('search_reports') }}">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="d-flex gap-2 mb-2">
+      <button class="btn btn-sm btn-outline-primary" type="button" onclick="alert('Demo: Bulk download later (zip)')">Bulk Download</button>
+      <button class="btn btn-sm btn-outline-primary" type="button" onclick="alert('Demo: Email distribution later')">Email to</button>
+      <button class="btn btn-sm btn-outline-primary" type="button" onclick="alert('Demo: View AI later')">View AI</button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr>
+            <th style="width:30px;"><input type="checkbox" onclick="toggleAll(this)"></th>
+            <th>Report ID</th>
+            <th>Department</th>
+            <th>Project</th>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reports %}
+            <tr>
+              <td><input type="checkbox"></td>
+              <td><b>{{ r.report_id }}</b></td>
+              <td>{{ r.dept_name or "-" }}</td>
+              <td>{{ r.project }}</td>
+              <td>{{ r.report_date }}</td>
+              <td>{{ r.report_type }}</td>
+              <td>{{ r.status }}</td>
+              <td class="text-muted">{{ r.updated_at }}</td>
+              <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('report_detail', report_id=r.report_id) }}">View</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if not reports %}
+      <div class="text-muted">No reports found.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function toggleAll(cb){
+  document.querySelectorAll('tbody input[type="checkbox"]').forEach(x => x.checked = cb.checked);
+}
+</script>
+
+{% endblock %}
