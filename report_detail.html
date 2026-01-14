@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ report.report_id }} — GPSE Hub</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4">
+  <a href="/" class="text-decoration-none">← Back</a>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{cat}} mt-2">{{ msg }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="d-flex justify-content-between align-items-center mt-2">
+    <div>
+      <h3 class="mb-0">{{ report.report_id }} — {{ report.project }} ({{ report.week }})</h3>
+      <div class="text-muted">Owner: {{ report.owner }} | Type: {{ report.report_type }} | Status: {{ report.status }}</div>
+    </div>
+    <div class="d-flex gap-2">
+      {% if report.storage_url %}
+        <a class="btn btn-outline-success" href="{{ report.storage_url }}" target="_blank">Open Storage Link</a>
+      {% endif %}
+      <form method="post" action="/generate_ppt/{{ report.report_id }}">
+        <button class="btn btn-primary" type="submit">Generate PPT</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-2">
+    <div class="col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5>Latest KPIs</h5>
+          {% if kpi %}
+            <div class="row">
+              <div class="col-6"><b>SLA:</b> {{ kpi.sla }}%</div>
+              <div class="col-6"><b>P1:</b> {{ kpi.p1_incidents }}</div>
+              <div class="col-6"><b>MTTR:</b> {{ kpi.mttr_minutes }} min</div>
+              <div class="col-6"><b>Risks:</b> {{ kpi.risk_count }}</div>
+              <div class="col-12 mt-2"><b>RAG:</b>
+                {% if kpi.rag == 'Green' %}
+                  <span class="badge text-bg-success">Green</span>
+                {% elif kpi.rag == 'Amber' %}
+                  <span class="badge text-bg-warning">Amber</span>
+                {% else %}
+                  <span class="badge text-bg-danger">Red</span>
+                {% endif %}
+              </div>
+              <div class="col-12 text-muted mt-2">Updated: {{ kpi.created_at }}</div>
+            </div>
+          {% else %}
+            <div class="text-muted">No KPI snapshots yet.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-3">
+        <div class="card-body">
+          <h5>Add KPI Snapshot</h5>
+          <form method="post" action="/add_kpi/{{ report.report_id }}">
+            <div class="row g-2">
+              <div class="col-md-4"><input class="form-control" name="sla" placeholder="SLA %" required></div>
+              <div class="col-md-4"><input class="form-control" name="p1_incidents" placeholder="P1" required></div>
+              <div class="col-md-4"><input class="form-control" name="mttr_minutes" placeholder="MTTR min" required></div>
+              <div class="col-md-4"><input class="form-control" name="risk_count" placeholder="Risks" required></div>
+              <div class="col-md-4">
+                <select class="form-select" name="rag">
+                  <option>Green</option>
+                  <option>Amber</option>
+                  <option>Red</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-dark mt-2" type="submit">Save KPIs</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-3">
+        <div class="card-body">
+          <h6>Power BI endpoints</h6>
+          <div class="text-muted">Use Get Data → Web:</div>
+          <div><code>http://127.0.0.1:5000/api/kpis</code></div>
+          <div><code>http://127.0.0.1:5000/api/reports</code></div>
+          <div class="mt-2"><a href="/export/kpis.csv">Download KPI CSV</a></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5>Version History</h5>
+          {% if versions %}
+            {% for v in versions %}
+              <div class="mb-2">
+                <span class="badge text-bg-secondary">v{{ v.version_no }}</span>
+                <span class="text-muted">{{ v.created_at }}</span>
+                <div>{{ v.notes }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-muted">No versions yet.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-3">
+        <div class="card-body">
+          <h5>Add Version</h5>
+          <form method="post" action="/add_version/{{ report.report_id }}">
+            <textarea class="form-control" name="notes" rows="4" placeholder="What changed in this version?" required></textarea>
+            <button class="btn btn-dark mt-2" type="submit">Save Version</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-3">
+        <div class="card-body">
+          <h6>Generated PPTs</h6>
+          <div class="text-muted">After clicking Generate PPT, a demo deck is saved locally under <code>output_ppt/</code>.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
