@@ -1,0 +1,60 @@
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+<style>
+  body { font-family: Arial, sans-serif; background:#f4f6f8; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  .card { background:#fff; border:1px solid #e6e8ef; border-radius:12px; padding:16px; box-shadow:0 6px 18px rgba(0,0,0,.06); }
+  .shadow-sm { box-shadow:0 6px 18px rgba(0,0,0,.06); }
+
+  .row { display:flex; flex-wrap:wrap; gap:12px; }
+  .g-2, .g-3 { gap:12px; }
+  .col-md-2 { flex: 1 1 180px; }
+  .col-md-3 { flex: 1 1 240px; }
+  .col-md-4 { flex: 1 1 320px; }
+  .col-md-6 { flex: 1 1 520px; }
+  .col-md-9 { flex: 1 1 740px; }
+  .col-6 { flex: 1 1 240px; }
+  .col-12 { flex: 1 1 100%; }
+
+  .d-flex { display:flex; }
+  .gap-2 { gap:10px; }
+  .justify-content-between { justify-content:space-between; }
+  .align-items-center { align-items:center; }
+
+  .text-muted { color:#6b7280; }
+  .mb-0 { margin-bottom:0; }
+  .mt-2 { margin-top:8px; }
+  .mt-3 { margin-top:16px; }
+  .mb-3 { margin-bottom:16px; }
+  .py-4 { padding-top:20px; padding-bottom:20px; }
+  .p-3 { padding:16px; }
+
+  .form-label { display:block; font-weight:600; margin: 8px 0 6px; }
+  .form-control, textarea, .form-select {
+    width:100%; padding:10px; border:1px solid #d8dbe6; border-radius:10px; background:#fff;
+  }
+  textarea { resize: vertical; }
+
+  .btn { display:inline-block; padding:10px 14px; border-radius:10px; border:1px solid #d8dbe6; background:#fff;
+         text-decoration:none; cursor:pointer; }
+  .btn-primary { background:#1f5eff; border-color:#1f5eff; color:#fff; }
+  .btn-dark { background:#111; border-color:#111; color:#fff; }
+  .btn-outline-success { border-color:#118a4f; color:#118a4f; background:#fff; }
+  .btn-outline-secondary { border-color:#aab; color:#444; background:#fff; }
+  .btn-outline-primary { border-color:#1f5eff; color:#1f5eff; background:#fff; }
+  .btn-sm { padding:6px 10px; border-radius:8px; font-size: 13px; }
+
+  .table { width:100%; border-collapse:collapse; }
+  .table th, .table td { padding:10px; border-bottom:1px solid #eee; text-align:left; }
+  .table th { background:#f1f3f6; }
+
+  .badge { padding:6px 10px; border-radius:999px; font-size:12px; display:inline-block; }
+  .text-bg-success { background:#d8f5e6; color:#0b5; }
+  .text-bg-warning { background:#fff2cc; color:#8a6d00; }
+  .text-bg-danger { background:#ffe0e0; color:#b00020; }
+  .text-bg-secondary { background:#e9ecef; color:#333; }
+
+  code { background:#f1f1f1; padding:2px 6px; border-radius:6px; }
+</style>
