@@ -1,0 +1,115 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">Dashboard</h4>
+    <div class="text-muted">Department KPI snapshot + thresholds + formulas (demo)</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-success" href="{{ url_for('export_kpis_csv') }}">Export KPI CSV</a>
+    <a class="btn btn-primary" href="{{ url_for('create') }}">+ Create Report</a>
+  </div>
+</div>
+
+<form class="card p-3 shadow-sm mb-3" method="get" action="{{ url_for('dashboard') }}">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">Department</label>
+      <select class="form-select" name="dept">
+        {% for d in depts %}
+          <option value="{{ d.dept_id }}" {% if selected_dept|int == d.dept_id %}selected{% endif %}>{{ d.dept_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Week (optional)</label>
+      <select class="form-select" name="week">
+        <option value="">Latest</option>
+        {% for w in weeks %}
+          <option value="{{ w }}" {% if selected_week == w %}selected{% endif %}>{{ w }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-dark w-100">Apply</button>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card shadow-sm"><div class="card-body">
+    <div class="text-muted">SLA</div>
+    <div class="fs-4">{{ cards.sla if cards.sla is not none else "-" }}%</div>
+  </div></div></div>
+
+  <div class="col-md-3"><div class="card shadow-sm"><div class="card-body">
+    <div class="text-muted">P1</div>
+    <div class="fs-4">{{ cards.p1 if cards.p1 is not none else "-" }}</div>
+  </div></div></div>
+
+  <div class="col-md-3"><div class="card shadow-sm"><div class="card-body">
+    <div class="text-muted">MTTR</div>
+    <div class="fs-4">{{ cards.mttr if cards.mttr is not none else "-" }} min</div>
+  </div></div></div>
+
+  <div class="col-md-3"><div class="card shadow-sm"><div class="card-body">
+    <div class="text-muted">Risks</div>
+    <div class="fs-4">{{ cards.risks if cards.risks is not none else "-" }}</div>
+  </div></div></div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h5 class="mb-3">KPI Details (with formulas & thresholds)</h5>
+
+    {% if kpis %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th>KPI</th>
+              <th>Value</th>
+              <th>RAG</th>
+              <th>Formula</th>
+              <th>Thresholds</th>
+              <th>Week</th>
+              <th>Snapshot Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for k in kpis %}
+              <tr>
+                <td><b>{{ k.kpi_name }}</b> <span class="text-muted">({{ k.kpi_code }})</span></td>
+                <td>{{ k.kpi_value }} {{ k.unit or "" }}</td>
+                <td>
+                  {% if k.rag == "Green" %}
+                    <span class="badge text-bg-success">Green</span>
+                  {% elif k.rag == "Amber" %}
+                    <span class="badge text-bg-warning">Amber</span>
+                  {% elif k.rag == "Red" %}
+                    <span class="badge text-bg-danger">Red</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Grey</span>
+                  {% endif %}
+                </td>
+                <td><code>{{ k.formula_text }}</code></td>
+                <td class="small">
+                  <div>{{ k.green_rule }}</div>
+                  <div>{{ k.amber_rule }}</div>
+                  <div>{{ k.red_rule }}</div>
+                </td>
+                <td>{{ k.week }}</td>
+                <td class="text-muted">{{ k.snapshot_date }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted">No KPI snapshots found for this selection.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
