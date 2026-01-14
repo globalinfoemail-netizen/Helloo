@@ -1,0 +1,517 @@
+import os
+import io
+import csv
+import sqlite3
+from datetime import datetime
+
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    jsonify, send_file, flash
+)
+
+# Optional utilities (you can expand later)
+from pptx import Presentation
+from pptx.util import Pt
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_DIR, "gpse.db")
+PPT_DIR = os.path.join(APP_DIR, "output_ppt")
+os.makedirs(PPT_DIR, exist_ok=True)
+
+app = Flask(__name__)
+app.secret_key = "gpse-v3-demo"
+
+# ------------------------
+# DB helpers
+# ------------------------
+def conn():
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+def now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def init_db():
+    with conn() as c:
+        # Departments
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS departments (
+            dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_name TEXT UNIQUE NOT NULL
+        )
+        """)
+
+        # Reports library (Search Reports uses this)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            report_id TEXT PRIMARY KEY,
+            dept_id INTEGER,
+            project TEXT NOT NULL,
+            report_date TEXT NOT NULL,     -- YYYY-MM-DD
+            week TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            report_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            storage_url TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(dept_id) REFERENCES departments(dept_id)
+        )
+        """)
+
+        # Version history
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_id TEXT NOT NULL,
+            version_no INTEGER NOT NULL,
+            notes TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(report_id) REFERENCES reports(report_id)
+        )
+        """)
+
+        # KPI definitions (formulas + thresholds shown on UI)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS kpi_definitions (
+            kpi_code TEXT PRIMARY KEY,
+            kpi_name TEXT NOT NULL,
+            unit TEXT,
+            formula_text TEXT NOT NULL,       -- displayed formula
+            green_rule TEXT NOT NULL,         -- displayed rule
+            amber_rule TEXT NOT NULL,
+            red_rule TEXT NOT NULL,
+            direction TEXT NOT NULL            -- 'HIGHER_BETTER' or 'LOWER_BETTER'
+        )
+        """)
+
+        # KPI snapshots (values by dept + week)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS kpi_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_id INTEGER NOT NULL,
+            week TEXT NOT NULL,
+            snapshot_date TEXT NOT NULL,      -- YYYY-MM-DD
+            kpi_code TEXT NOT NULL,
+            kpi_value REAL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(dept_id) REFERENCES departments(dept_id),
+            FOREIGN KEY(kpi_code) REFERENCES kpi_definitions(kpi_code)
+        )
+        """)
+
+        # Seed if empty
+        dep_count = c.execute("SELECT COUNT(*) AS n FROM departments").fetchone()["n"]
+        if dep_count == 0:
+            seed_demo(c)
+
+def seed_demo(c):
+    # Departments
+    for d in ["INC (Incident)", "NFPE", "Service Desk", "GPSE Ops"]:
+        c.execute("INSERT INTO departments(dept_name) VALUES(?)", (d,))
+
+    def dept_id(name):
+        return c.execute("SELECT dept_id FROM departments WHERE dept_name=?", (name,)).fetchone()["dept_id"]
+
+    # KPI definitions (edit these to your real formulas/rules)
+    kpis = [
+        ("SLA", "SLA Compliance", "%", "SLA% = (Successful transactions / Total transactions) × 100",
+         "Green: >= 99.0%", "Amber: 97.0% to 98.99%", "Red: < 97.0%", "HIGHER_BETTER"),
+        ("P1", "P1 Incidents", "count", "P1 = count of Priority-1 incidents in the week",
+         "Green: 0", "Amber: 1 to 2", "Red: >= 3", "LOWER_BETTER"),
+        ("MTTR", "Mean Time To Resolve", "minutes", "MTTR = Total resolution minutes / #incidents",
+         "Green: <= 45", "Amber: 46 to 90", "Red: > 90", "LOWER_BETTER"),
+        ("RISKS", "Risk Count", "count", "Risk Count = number of active risks logged",
+         "Green: <= 2", "Amber: 3 to 5", "Red: > 5", "LOWER_BETTER"),
+    ]
+    for row in kpis:
+        c.execute("""
+        INSERT INTO kpi_definitions(kpi_code,kpi_name,unit,formula_text,green_rule,amber_rule,red_rule,direction)
+        VALUES(?,?,?,?,?,?,?,?)
+        """, row)
+
+    # Reports demo data (Search Reports tab)
+    demo_reports = [
+        ("R001", "INC (Incident)", "Alpha", "2026-01-10", "W02", "GPSE1", "Weekly", "Final", "file:///C:/dummy/Alpha_W02_v1.pptx"),
+        ("R002", "NFPE",          "Beta",  "2026-01-10", "W02", "GPSE2", "Incident", "Draft", "file:///C:/dummy/Beta_W02_v1.pptx"),
+        ("R003", "Service Desk",  "Gamma", "2026-01-11", "W02", "GPSE3", "Weekly", "Draft", "file:///C:/dummy/Gamma_W02_v1.pptx"),
+        ("R004", "GPSE Ops",      "Delta", "2026-01-11", "W02", "GPSE4", "Leadership", "Final", "file:///C:/dummy/Delta_W02_v1.pptx"),
+    ]
+    for r in demo_reports:
+        did = dept_id(r[1])
+        c.execute("""
+        INSERT INTO reports(report_id, dept_id, project, report_date, week, owner, report_type, status, storage_url, created_at, updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        """, (r[0], did, r[2], r[3], r[4], r[5], r[6], r[7], r[8], now(), now()))
+
+    # Versions
+    demo_versions = [
+        ("R001", 1, "Initial weekly report draft."),
+        ("R001", 2, "Updated KPIs and risk notes."),
+        ("R002", 1, "Incident summary created."),
+    ]
+    for report_id, vno, notes in demo_versions:
+        c.execute("INSERT INTO versions(report_id, version_no, notes, created_at) VALUES(?,?,?,?)",
+                  (report_id, vno, notes, now()))
+
+    # KPI snapshots by dept/week
+    snapshots = [
+        ("INC (Incident)", "W02", "2026-01-10", "SLA", 98.65),
+        ("INC (Incident)", "W02", "2026-01-10", "P1",  1),
+        ("INC (Incident)", "W02", "2026-01-10", "MTTR", 54),
+        ("INC (Incident)", "W02", "2026-01-10", "RISKS", 3),
+
+        ("NFPE", "W02", "2026-01-10", "SLA", 99.20),
+        ("NFPE", "W02", "2026-01-10", "P1",  0),
+        ("NFPE", "W02", "2026-01-10", "MTTR", 40),
+        ("NFPE", "W02", "2026-01-10", "RISKS", 2),
+
+        ("Service Desk", "W02", "2026-01-11", "SLA", 97.10),
+        ("Service Desk", "W02", "2026-01-11", "P1",  3),
+        ("Service Desk", "W02", "2026-01-11", "MTTR", 120),
+        ("Service Desk", "W02", "2026-01-11", "RISKS", 6),
+    ]
+    for dept, week, sdate, code, val in snapshots:
+        did = dept_id(dept)
+        c.execute("""
+        INSERT INTO kpi_snapshots(dept_id, week, snapshot_date, kpi_code, kpi_value, created_at)
+        VALUES(?,?,?,?,?,?)
+        """, (did, week, sdate, code, float(val), now()))
+
+# ------------------------
+# KPI helpers
+# ------------------------
+def rag_for_kpi(kpi_code: str, value):
+    """
+    Hard-coded demo rules matching seed.
+    Replace with your exact business thresholds later.
+    """
+    if value is None:
+        return "Grey"
+
+    v = float(value)
+
+    if kpi_code == "SLA":
+        if v >= 99.0: return "Green"
+        if v >= 97.0: return "Amber"
+        return "Red"
+
+    if kpi_code == "P1":
+        if v == 0: return "Green"
+        if 1 <= v <= 2: return "Amber"
+        return "Red"
+
+    if kpi_code == "MTTR":
+        if v <= 45: return "Green"
+        if v <= 90: return "Amber"
+        return "Red"
+
+    if kpi_code == "RISKS":
+        if v <= 2: return "Green"
+        if v <= 5: return "Amber"
+        return "Red"
+
+    return "Grey"
+
+def latest_kpis_by_dept(c, dept_id, week=None):
+    # Latest snapshot per KPI code (optionally filtered by week)
+    params = [dept_id]
+    week_filter = ""
+    if week:
+        week_filter = "AND ks.week=?"
+        params.append(week)
+
+    rows = c.execute(f"""
+    SELECT ks.kpi_code, kd.kpi_name, kd.unit, kd.formula_text, kd.green_rule, kd.amber_rule, kd.red_rule,
+           ks.kpi_value, ks.week, ks.snapshot_date
+    FROM kpi_snapshots ks
+    JOIN kpi_definitions kd ON kd.kpi_code = ks.kpi_code
+    JOIN (
+        SELECT kpi_code, MAX(created_at) AS mc
+        FROM kpi_snapshots
+        WHERE dept_id=? {week_filter}
+        GROUP BY kpi_code
+    ) latest
+    ON latest.kpi_code = ks.kpi_code AND latest.mc = ks.created_at
+    WHERE ks.dept_id=? {week_filter}
+    ORDER BY ks.kpi_code
+    """, params + [dept_id] + ([] if not week else [week])).fetchall()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["rag"] = rag_for_kpi(d["kpi_code"], d["kpi_value"])
+        out.append(d)
+    return out
+
+# ------------------------
+# Routes
+# ------------------------
+@app.route("/")
+def home():
+    return redirect(url_for("dashboard"))
+
+@app.route("/dashboard")
+def dashboard():
+    with conn() as c:
+        depts = c.execute("SELECT * FROM departments ORDER BY dept_name").fetchall()
+        weeks = [r["week"] for r in c.execute("SELECT DISTINCT week FROM reports ORDER BY week DESC").fetchall()]
+
+    selected_dept = request.args.get("dept", "")
+    selected_week = request.args.get("week", "")
+
+    with conn() as c:
+        if not selected_dept and depts:
+            selected_dept = str(depts[0]["dept_id"])
+
+        dept_row = None
+        kpis = []
+        if selected_dept:
+            dept_row = c.execute("SELECT * FROM departments WHERE dept_id=?", (selected_dept,)).fetchone()
+            kpis = latest_kpis_by_dept(c, int(selected_dept), selected_week or None)
+
+        # Summary cards (demo: overall across latest values)
+        # You can replace with your exact overall aggregation logic
+        all_latest = []
+        if dept_row:
+            all_latest = kpis
+
+        def get_val(code):
+            for x in all_latest:
+                if x["kpi_code"] == code:
+                    return x["kpi_value"]
+            return None
+
+        cards = {
+            "sla": get_val("SLA"),
+            "p1": get_val("P1"),
+            "mttr": get_val("MTTR"),
+            "risks": get_val("RISKS"),
+        }
+
+    return render_template(
+        "dashboard.html",
+        depts=depts,
+        weeks=weeks,
+        selected_dept=selected_dept,
+        selected_week=selected_week,
+        dept_row=dept_row,
+        kpis=kpis,
+        cards=cards
+    )
+
+@app.route("/search")
+def search_reports():
+    q = request.args.get("q", "").strip().lower()
+    report_type = request.args.get("report_type", "").strip()
+    dept_id = request.args.get("dept_id", "").strip()
+    date_from = request.args.get("date_from", "").strip()   # YYYY-MM-DD
+    date_to = request.args.get("date_to", "").strip()       # YYYY-MM-DD
+
+    sql = """
+    SELECT r.*, d.dept_name
+    FROM reports r
+    LEFT JOIN departments d ON d.dept_id = r.dept_id
+    WHERE 1=1
+    """
+    params = []
+
+    if q:
+        sql += " AND (lower(r.report_id) LIKE ? OR lower(r.project) LIKE ? OR lower(r.owner) LIKE ? OR lower(r.report_type) LIKE ?)"
+        params += [f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
+
+    if report_type:
+        sql += " AND r.report_type=?"
+        params.append(report_type)
+
+    if dept_id:
+        sql += " AND r.dept_id=?"
+        params.append(dept_id)
+
+    if date_from:
+        sql += " AND r.report_date >= ?"
+        params.append(date_from)
+
+    if date_to:
+        sql += " AND r.report_date <= ?"
+        params.append(date_to)
+
+    sql += " ORDER BY r.report_date DESC, r.updated_at DESC"
+
+    with conn() as c:
+        rows = c.execute(sql, params).fetchall()
+        depts = c.execute("SELECT * FROM departments ORDER BY dept_name").fetchall()
+        types = [r["report_type"] for r in c.execute("SELECT DISTINCT report_type FROM reports ORDER BY report_type").fetchall()]
+
+    return render_template("search_reports.html", reports=rows, depts=depts, types=types)
+
+@app.route("/utilities")
+def utilities():
+    return render_template("utilities.html")
+
+@app.route("/assistant")
+def assistant():
+    return render_template("assistant.html")
+
+@app.route("/api/assistant", methods=["POST"])
+def api_assistant():
+    # Simple stub. Replace with real LLM later.
+    user_msg = (request.json or {}).get("message", "")
+    reply = f"(Demo AI) I understood: {user_msg}. Next: connect to real report/KPI data and summarize."
+    return jsonify({"reply": reply})
+
+@app.route("/create", methods=["GET", "POST"])
+def create():
+    with conn() as c:
+        depts = c.execute("SELECT * FROM departments ORDER BY dept_name").fetchall()
+
+    if request.method == "POST":
+        report_id = request.form.get("report_id", "").strip()
+        dept_id = request.form.get("dept_id", "").strip() or None
+        project = request.form.get("project", "").strip()
+        report_date = request.form.get("report_date", "").strip()   # YYYY-MM-DD
+        week = request.form.get("week", "").strip()
+        owner = request.form.get("owner", "").strip()
+        report_type = request.form.get("report_type", "").strip()
+        status = request.form.get("status", "Draft").strip()
+        storage_url = request.form.get("storage_url", "").strip()
+
+        if not all([report_id, project, report_date, week, owner, report_type, status]):
+            flash("All fields except Storage URL are required.", "danger")
+            return redirect(url_for("create"))
+
+        with conn() as c:
+            exists = c.execute("SELECT 1 FROM reports WHERE report_id=?", (report_id,)).fetchone()
+            if exists:
+                flash("Report ID already exists. Use a new ID.", "danger")
+                return redirect(url_for("create"))
+
+            c.execute("""
+            INSERT INTO reports(report_id, dept_id, project, report_date, week, owner, report_type, status, storage_url, created_at, updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """, (report_id, dept_id, project, report_date, week, owner, report_type, status, storage_url, now(), now()))
+
+        flash("Report created.", "success")
+        return redirect(url_for("report_detail", report_id=report_id))
+
+    return render_template("create.html", depts=depts)
+
+@app.route("/report/<report_id>")
+def report_detail(report_id):
+    with conn() as c:
+        report = c.execute("""
+        SELECT r.*, d.dept_name
+        FROM reports r
+        LEFT JOIN departments d ON d.dept_id = r.dept_id
+        WHERE r.report_id=?
+        """, (report_id,)).fetchone()
+        if not report:
+            return "Report not found", 404
+
+        versions = c.execute("SELECT * FROM versions WHERE report_id=? ORDER BY version_no DESC", (report_id,)).fetchall()
+
+    return render_template("report_detail.html", report=report, versions=versions)
+
+@app.route("/add_version/<report_id>", methods=["POST"])
+def add_version(report_id):
+    notes = request.form.get("notes", "").strip()
+    if not notes:
+        flash("Version notes are required.", "danger")
+        return redirect(url_for("report_detail", report_id=report_id))
+
+    with conn() as c:
+        mx = c.execute("SELECT COALESCE(MAX(version_no),0) AS mx FROM versions WHERE report_id=?", (report_id,)).fetchone()["mx"]
+        vno = int(mx) + 1
+        c.execute("INSERT INTO versions(report_id, version_no, notes, created_at) VALUES(?,?,?,?)",
+                  (report_id, vno, notes, now()))
+        c.execute("UPDATE reports SET updated_at=? WHERE report_id=?", (now(), report_id))
+
+    flash(f"Saved version v{vno}.", "success")
+    return redirect(url_for("report_detail", report_id=report_id))
+
+def _ppt_add_bullets(slide, title, bullets):
+    slide.shapes.title.text = title
+    tf = slide.shapes.placeholders[1].text_frame
+    tf.clear()
+    for i, b in enumerate(bullets):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.text = b
+        p.level = 0
+        p.font.size = Pt(18)
+
+@app.route("/generate_ppt/<report_id>", methods=["POST"])
+def generate_ppt(report_id):
+    with conn() as c:
+        report = c.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
+        if not report:
+            flash("Report not found.", "danger")
+            return redirect(url_for("dashboard"))
+
+        versions = c.execute("SELECT * FROM versions WHERE report_id=? ORDER BY version_no DESC LIMIT 5", (report_id,)).fetchall()
+
+    prs = Presentation()
+    s0 = prs.slides.add_slide(prs.slide_layouts[0])
+    s0.shapes.title.text = f"{report['project']} — {report['week']} ({report['report_type']})"
+    s0.placeholders[1].text = f"Report ID: {report['report_id']} | Owner: {report['owner']} | Status: {report['status']}\nGenerated: {now()}"
+
+    s1 = prs.slides.add_slide(prs.slide_layouts[1])
+    bullets = [f"Report Date: {report['report_date']}", f"Department ID: {report['dept_id']}", f"Type: {report['report_type']}"]
+    _ppt_add_bullets(s1, "Report Summary", bullets)
+
+    s2 = prs.slides.add_slide(prs.slide_layouts[1])
+    bullets = [f"v{v['version_no']}: {v['notes']}" for v in versions] if versions else ["No versions recorded yet."]
+    _ppt_add_bullets(s2, "Recent Versions / Notes", bullets)
+
+    filename = f"{report_id}_{report['project']}_{report['week']}.pptx".replace(" ", "_")
+    out_path = os.path.join(PPT_DIR, filename)
+    prs.save(out_path)
+
+    flash("PPT generated successfully. Check output_ppt/ folder.", "success")
+    return redirect(url_for("report_detail", report_id=report_id))
+
+@app.route("/export/reports.csv")
+def export_reports_csv():
+    with conn() as c:
+        rows = c.execute("""
+        SELECT r.report_id, d.dept_name, r.project, r.report_date, r.week, r.owner, r.report_type, r.status, r.storage_url, r.updated_at
+        FROM reports r
+        LEFT JOIN departments d ON d.dept_id = r.dept_id
+        ORDER BY r.report_date DESC
+        """).fetchall()
+
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["report_id","department","project","report_date","week","owner","report_type","status","storage_url","updated_at"])
+    for r in rows:
+        d = dict(r)
+        w.writerow([d["report_id"], d["dept_name"], d["project"], d["report_date"], d["week"], d["owner"],
+                    d["report_type"], d["status"], d["storage_url"], d["updated_at"]])
+
+    mem = io.BytesIO(output.getvalue().encode("utf-8"))
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="reports_export.csv")
+
+@app.route("/export/kpis.csv")
+def export_kpis_csv():
+    with conn() as c:
+        rows = c.execute("""
+        SELECT d.dept_name, ks.week, ks.snapshot_date, ks.kpi_code, kd.kpi_name, ks.kpi_value, kd.unit, ks.created_at
+        FROM kpi_snapshots ks
+        JOIN departments d ON d.dept_id = ks.dept_id
+        JOIN kpi_definitions kd ON kd.kpi_code = ks.kpi_code
+        ORDER BY ks.created_at DESC
+        """).fetchall()
+
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["department","week","snapshot_date","kpi_code","kpi_name","kpi_value","unit","created_at"])
+    for r in rows:
+        d = dict(r)
+        w.writerow([d["dept_name"], d["week"], d["snapshot_date"], d["kpi_code"], d["kpi_name"], d["kpi_value"], d["unit"], d["created_at"]])
+
+    mem = io.BytesIO(output.getvalue().encode("utf-8"))
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="kpis_export.csv")
+
+if __name__ == "__main__":
+    init_db()
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
