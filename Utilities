@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h4>Utilities</h4>
+<div class="text-muted mb-3">PDF tools + checks + cleanup (demo UI)</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5>PDF Tools</h5>
+        <div class="d-grid gap-2 mt-2">
+          <button class="btn btn-outline-dark" type="button" onclick="alert('Demo: PDF→PPT converter later')">PDF to PPT Converter</button>
+          <button class="btn btn-outline-dark" type="button" onclick="alert('Demo: PDF Splitter later')">PDF Splitter</button>
+          <button class="btn btn-outline-dark" type="button" onclick="alert('Demo: PDF Merger later')">PDF Merger</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5>Checks & Cleanup</h5>
+        <div class="d-grid gap-2 mt-2">
+          <button class="btn btn-outline-primary" type="button" onclick="alert('Demo: Division/Subdivision checker later')">Division/Subdivision Checker</button>
+          <button class="btn btn-outline-primary" type="button" onclick="alert('Demo: Dynamic email distribution later')">Dynamic Email Distribution</button>
+          <button class="btn btn-outline-primary" type="button" onclick="alert('Demo: SharePoint cleanup later')">SharePoint Cleanup (Zip 1 year)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
