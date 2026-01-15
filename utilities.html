@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% set title="Utilities" %}
+{% set active="utilities" %}
+{% block content %}
+
+<h3>Utilities</h3>
+<div class="muted">Bank-safe utilities: metadata, conversions, exports. (File ops are placeholders until approved.)</div>
+
+<div class="grid-2" style="margin-top:12px;">
+  <div class="card"><div class="p">
+    <h4>Report Index (Metadata)</h4>
+    <div class="muted">Store SharePoint / Power BI links, owners, frequency, and tags.</div>
+    <div style="margin-top:10px;">
+      <a class="btn outline" href="{{ url_for('dashboard') }}">Open Reports Dashboard</a>
+    </div>
+  </div></div>
+
+  <div class="card"><div class="p">
+    <h4>PPT → PDF (Demo)</h4>
+    <div class="muted">Agree workflow first. In production, use office-approved approach (COM automation / internal service).</div>
+  </div></div>
+
+  <div class="card"><div class="p">
+    <h4>Exports</h4>
+    <div class="muted">Export data for Power BI or audit.</div>
+    <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+      <a class="btn outline" href="{{ url_for('export_kpis_csv') }}">Export KPI Snapshots CSV</a>
+      <a class="btn outline" href="{{ url_for('export_kpi_master_csv') }}">Export KPI Library CSV</a>
+    </div>
+  </div></div>
+
+  <div class="card"><div class="p">
+    <h4>Power BI APIs</h4>
+    <div class="muted">Use Get Data → Web (local demo):</div>
+    <div style="margin-top:8px;"><code>http://127.0.0.1:5000/api/reports</code></div>
+    <div style="margin-top:8px;"><code>http://127.0.0.1:5000/api/kpis</code></div>
+    <div style="margin-top:8px;"><code>http://127.0.0.1:5000/api/kpi_master</code></div>
+  </div></div>
+</div>
+
+{% endblock %}

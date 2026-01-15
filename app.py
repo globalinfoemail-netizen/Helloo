@@ -3,8 +3,12 @@ import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, flash
 
-from pptx import Presentation
-from pptx.util import Pt
+try:
+    from pptx import Presentation
+    from pptx.util import Pt
+    PPTX_OK = True
+except Exception:
+    PPTX_OK = False
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(APP_DIR, "gpse.db")
@@ -12,7 +16,7 @@ PPT_DIR = os.path.join(APP_DIR, "output_ppt")
 os.makedirs(PPT_DIR, exist_ok=True)
 
 app = Flask(__name__)
-app.secret_key = "gpse-v2-demo"
+app.secret_key = "gpse-v2-plus"
 
 def conn():
     c = sqlite3.connect(DB_PATH)
@@ -54,16 +58,112 @@ def init_db():
             created_at TEXT NOT NULL,
             FOREIGN KEY(report_id) REFERENCES reports(report_id)
         )""")
-        existing = c.execute("SELECT COUNT(*) AS n FROM reports").fetchone()["n"]
-        if existing == 0:
-            seed_demo(c)
 
-def seed_demo(c):
+        c.execute("""CREATE TABLE IF NOT EXISTS departments (
+            dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_name TEXT UNIQUE NOT NULL
+        )""")
+
+        c.execute("""CREATE TABLE IF NOT EXISTS kpi_master (
+            kpi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_id INTEGER NOT NULL,
+            section TEXT NOT NULL,
+            kpi_key TEXT NOT NULL,
+            kpi_name TEXT NOT NULL,
+            formula_display TEXT NOT NULL,
+            description TEXT,
+            calculation_notes TEXT,
+            green_rule TEXT,
+            amber_rule TEXT,
+            red_rule TEXT,
+            owner_team TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(dept_id, kpi_key),
+            FOREIGN KEY(dept_id) REFERENCES departments(dept_id)
+        )""")
+
+        if c.execute("SELECT COUNT(*) AS n FROM departments").fetchone()["n"] == 0:
+            seed_departments(c)
+        if c.execute("SELECT COUNT(*) AS n FROM kpi_master").fetchone()["n"] == 0:
+            seed_kpi_library(c)
+        if c.execute("SELECT COUNT(*) AS n FROM reports").fetchone()["n"] == 0:
+            seed_reports_demo(c)
+
+def seed_departments(c):
+    for d in ["NFPE", "INC (Incident)", "CRI", "Service Desk", "GPSE Ops"]:
+        c.execute("INSERT INTO departments(dept_name) VALUES(?)", (d,))
+
+def _dept_id(c, dept_name: str) -> int:
+    return c.execute("SELECT dept_id FROM departments WHERE dept_name=?", (dept_name,)).fetchone()["dept_id"]
+
+def seed_kpi_library(c):
+    def upsert(dept_name, section, kpi_key, kpi_name, formula, desc="", notes="", g="", a="", r="", owner="GPSE"):
+        did = _dept_id(c, dept_name)
+        c.execute("""
+        INSERT INTO kpi_master(dept_id, section, kpi_key, kpi_name, formula_display, description, calculation_notes,
+                               green_rule, amber_rule, red_rule, owner_team, updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(dept_id, kpi_key) DO UPDATE SET
+          section=excluded.section,
+          kpi_name=excluded.kpi_name,
+          formula_display=excluded.formula_display,
+          description=excluded.description,
+          calculation_notes=excluded.calculation_notes,
+          green_rule=excluded.green_rule,
+          amber_rule=excluded.amber_rule,
+          red_rule=excluded.red_rule,
+          owner_team=excluded.owner_team,
+          updated_at=excluded.updated_at
+        """, (did, section, kpi_key, kpi_name, formula, desc, notes, g, a, r, owner, now()))
+
+    upsert("NFPE", "NFPE", "NFPE_CRI_SEV2_RATE", "CRI SEV2 Rate",
+           "CRI SEV2 Rate = (Count of CRI tickets tagged SEV2) / (Total CRI tickets) × 100",
+           desc="Measures concentration of SEV2 within CRI tickets.",
+           notes="Filter: selected reporting period; CRI scope defined by NFPE taxonomy.",
+           g="Green: < 2%", a="Amber: 2%–5%", r="Red: > 5%")
+
+    upsert("NFPE", "NFPE", "NFPE_EXCEPTION_RATE", "Exception Rate",
+           "Exception Rate = (Exception count) / (Total cases processed) × 100",
+           desc="Shows operational exceptions relative to volume.",
+           notes="Define exceptions per NFPE policy; exclude training/test cases.",
+           g="Green: < 0.5%", a="Amber: 0.5%–1.0%", r="Red: > 1.0%")
+
+    upsert("INC (Incident)", "Incident Mgmt", "INC_P1_COUNT", "P1 Incidents",
+           "P1 = count(priority='P1') in reporting period",
+           desc="Number of Priority-1 incidents created in the period.",
+           notes="Use incident creation timestamp; exclude duplicates/cancelled.",
+           g="Green: 0", a="Amber: 1–2", r="Red: ≥ 3")
+
+    upsert("INC (Incident)", "Incident Mgmt", "INC_MTTR_P1", "P1 MTTR (minutes)",
+           "MTTR(P1) = Avg(Resolved Time − Opened Time) for Priority=P1",
+           desc="Mean time to resolve P1 incidents.",
+           notes="Use resolved incidents only; exclude vendor-hold or paused time if policy requires.",
+           g="Green: ≤ 45", a="Amber: 46–90", r="Red: > 90")
+
+    upsert("CRI", "CRI", "CRI_BACKLOG", "CRI Backlog",
+           "Backlog = count(CRI items where status in {Open, In Progress})",
+           desc="Open backlog items under CRI scope.",
+           notes="Backlog definition agreed with CRI ops; snapshot at end of period.",
+           g="Green: ≤ 10", a="Amber: 11–25", r="Red: > 25")
+
+    upsert("Service Desk", "Service Desk", "SD_SLA", "SLA Compliance",
+           "SLA% = (Success / Total) × 100",
+           desc="Share of service desk requests meeting SLA.",
+           notes="Define success as met SLA within policy; period based on ticket closed date.",
+           g="Green: ≥ 99.0%", a="Amber: 97.0%–98.99%", r="Red: < 97.0%")
+
+    upsert("GPSE Ops", "Ops", "OPS_ACTIVE_RISKS", "Active Risks",
+           "Active Risks = count(risks where status='Active')",
+           desc="Count of open/active risks tracked by GPSE Ops.",
+           notes="Risk register maintained weekly; treat overdue mitigations as active.",
+           g="Green: ≤ 2", a="Amber: 3–5", r="Red: > 5")
+
+def seed_reports_demo(c):
     demo_reports = [
-        ("R001", "Alpha", "W35", "GPSE1", "Weekly", "Final", "file:///C:/dummy/Alpha_W35_v1.pptx"),
-        ("R002", "Beta",  "W35", "GPSE2", "Incident", "Draft", "file:///C:/dummy/Beta_W35_v2.pptx"),
-        ("R003", "Alpha", "W36", "GPSE1", "Weekly", "Draft", "file:///C:/dummy/Alpha_W36_v1.pptx"),
-        ("R004", "Gamma", "W35", "GPSE3", "Weekly", "Final", "file:///C:/dummy/Gamma_W35_v1.pptx"),
+        ("R001", "Alpha", "W35", "GPSE1", "Weekly", "Final", "https://sharepoint.example/Alpha_W35"),
+        ("R002", "Beta",  "W35", "GPSE2", "Incident", "Draft", "https://sharepoint.example/Beta_W35"),
+        ("R003", "Alpha", "W36", "GPSE1", "Weekly", "Draft", "https://sharepoint.example/Alpha_W36"),
+        ("R004", "Gamma", "W35", "GPSE3", "Weekly", "Final", "https://sharepoint.example/Gamma_W35"),
     ]
     for r in demo_reports:
         c.execute("""INSERT INTO reports
@@ -99,7 +199,12 @@ def summary_cards(c):
         FROM kpis""").fetchone()
 
 @app.route("/")
+def root():
+    return redirect(url_for("dashboard"))
+
+@app.route("/dashboard")
 def dashboard():
+    init_db()
     q = request.args.get("q", "").strip().lower()
     project = request.args.get("project", "").strip()
     week = request.args.get("week", "").strip()
@@ -129,10 +234,12 @@ def dashboard():
         types = [r["report_type"] for r in c.execute("SELECT DISTINCT report_type FROM reports ORDER BY report_type").fetchall()]
         cards = summary_cards(c)
 
-    return render_template("dashboard.html", reports=reports, projects=projects, weeks=weeks, owners=owners, types=types, cards=cards)
+    return render_template("dashboard.html", active="dashboard",
+                           reports=reports, projects=projects, weeks=weeks, owners=owners, types=types, cards=cards)
 
 @app.route("/create", methods=["GET","POST"])
 def create():
+    init_db()
     if request.method == "POST":
         report_id = request.form.get("report_id","").strip()
         project = request.form.get("project","").strip()
@@ -156,20 +263,22 @@ def create():
                 VALUES (?,?,?,?,?,?,?,?,?)""", (report_id, project, week, owner, report_type, status, storage_url, now(), now()))
         flash("Report created.", "success")
         return redirect(url_for("report_detail", report_id=report_id))
-    return render_template("create.html")
+    return render_template("create.html", active="dashboard")
 
 @app.route("/report/<report_id>")
 def report_detail(report_id):
+    init_db()
     with conn() as c:
         report = c.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
         if not report:
             return "Report not found", 404
         versions = c.execute("SELECT * FROM versions WHERE report_id=? ORDER BY version_no DESC", (report_id,)).fetchall()
         kpi_latest = c.execute("SELECT * FROM kpis WHERE report_id=? ORDER BY created_at DESC LIMIT 1", (report_id,)).fetchone()
-    return render_template("report_detail.html", report=report, versions=versions, kpi=kpi_latest)
+    return render_template("report_detail.html", active="dashboard", report=report, versions=versions, kpi=kpi_latest)
 
 @app.route("/add_version/<report_id>", methods=["POST"])
 def add_version(report_id):
+    init_db()
     notes = request.form.get("notes","").strip()
     if not notes:
         flash("Version notes are required.", "danger")
@@ -185,6 +294,7 @@ def add_version(report_id):
 
 @app.route("/add_kpi/<report_id>", methods=["POST"])
 def add_kpi(report_id):
+    init_db()
     def _to_int(v, default=0):
         try: return int(v)
         except Exception: return default
@@ -217,6 +327,11 @@ def _ppt_add_bullets(slide, title, bullets):
 
 @app.route("/generate_ppt/<report_id>", methods=["POST"])
 def generate_ppt(report_id):
+    init_db()
+    if not PPTX_OK:
+        flash("python-pptx not installed. Ask IT to allow install or remove PPT feature for demo.", "warning")
+        return redirect(url_for("report_detail", report_id=report_id))
+
     with conn() as c:
         report = c.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
         if not report:
@@ -246,8 +361,94 @@ def generate_ppt(report_id):
     flash("PPT generated successfully. Check output_ppt/ folder.", "success")
     return redirect(url_for("report_detail", report_id=report_id))
 
+@app.route("/kpi-library")
+def kpi_library():
+    init_db()
+    return render_template("kpi_library.html", active="kpi_library")
+
+@app.route("/api/departments")
+def api_departments():
+    init_db()
+    with conn() as c:
+        rows = c.execute("SELECT dept_id, dept_name FROM departments ORDER BY dept_name").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/kpis_list")
+def api_kpis_list():
+    init_db()
+    dept_id = request.args.get("dept_id","").strip()
+    section = request.args.get("section","").strip()
+    search = request.args.get("search","").strip().lower()
+
+    sql = "SELECT kpi_id, section, kpi_key, kpi_name, updated_at FROM kpi_master WHERE 1=1"
+    params = []
+    if dept_id:
+        sql += " AND dept_id=?"; params.append(dept_id)
+    if section:
+        sql += " AND section=?"; params.append(section)
+    if search:
+        sql += " AND (lower(kpi_key) LIKE ? OR lower(kpi_name) LIKE ? OR lower(section) LIKE ?)"
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+    sql += " ORDER BY section ASC, kpi_name ASC"
+
+    with conn() as c:
+        rows = c.execute(sql, params).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/kpi/<int:kpi_id>")
+def api_kpi_detail(kpi_id):
+    init_db()
+    with conn() as c:
+        row = c.execute("""
+        SELECT km.*, d.dept_name
+        FROM kpi_master km
+        JOIN departments d ON d.dept_id = km.dept_id
+        WHERE km.kpi_id=?
+        """, (kpi_id,)).fetchone()
+    if not row:
+        return jsonify({"error":"KPI not found"}), 404
+    return jsonify(dict(row))
+
+@app.route("/api/kpi_master")
+def api_kpi_master():
+    init_db()
+    with conn() as c:
+        rows = c.execute("""
+        SELECT d.dept_name, km.section, km.kpi_key, km.kpi_name, km.formula_display,
+               km.description, km.calculation_notes, km.green_rule, km.amber_rule, km.red_rule,
+               km.owner_team, km.updated_at
+        FROM kpi_master km
+        JOIN departments d ON d.dept_id = km.dept_id
+        ORDER BY d.dept_name, km.section, km.kpi_name
+        """).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/utilities")
+def utilities():
+    init_db()
+    return render_template("utilities.html", active="utilities")
+
+@app.route("/assistant")
+def assistant():
+    init_db()
+    q = request.args.get("q","").strip()
+    results = []
+    if q:
+        ql = q.lower()
+        with conn() as c:
+            results = c.execute("""
+            SELECT km.kpi_name, km.kpi_key, km.section, km.formula_display, d.dept_name
+            FROM kpi_master km
+            JOIN departments d ON d.dept_id = km.dept_id
+            WHERE lower(km.kpi_name) LIKE ? OR lower(km.kpi_key) LIKE ? OR lower(km.section) LIKE ? OR lower(d.dept_name) LIKE ?
+            ORDER BY d.dept_name, km.section, km.kpi_name
+            LIMIT 50
+            """, (f"%{ql}%", f"%{ql}%", f"%{ql}%", f"%{ql}%")).fetchall()
+    return render_template("assistant.html", active="assistant", q=q, results=results)
+
 @app.route("/api/reports")
 def api_reports():
+    init_db()
     with conn() as c:
         rows = c.execute("SELECT * FROM reports").fetchall()
     out = []
@@ -259,6 +460,7 @@ def api_reports():
 
 @app.route("/api/kpis")
 def api_kpis():
+    init_db()
     with conn() as c:
         rows = c.execute("""SELECT
               r.report_id, r.project, r.week, r.owner, r.report_type, r.status,
@@ -280,6 +482,7 @@ def api_kpis():
 
 @app.route("/export/kpis.csv")
 def export_kpis_csv():
+    init_db()
     with conn() as c:
         rows = c.execute("""SELECT
               r.report_id, r.project, r.week, r.owner, r.report_type, r.status,
@@ -307,6 +510,40 @@ def export_kpis_csv():
     mem = io.BytesIO(output.getvalue().encode("utf-8"))
     return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="kpis_export.csv")
 
+@app.route("/export/kpi_library.csv")
+def export_kpi_master_csv():
+    init_db()
+    with conn() as c:
+        rows = c.execute("""
+        SELECT d.dept_name, km.section, km.kpi_key, km.kpi_name, km.formula_display,
+               km.description, km.calculation_notes, km.green_rule, km.amber_rule, km.red_rule,
+               km.owner_team, km.updated_at
+        FROM kpi_master km
+        JOIN departments d ON d.dept_id = km.dept_id
+        ORDER BY d.dept_name, km.section, km.kpi_name
+        """).fetchall()
+
+    import io, csv
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["dept_name","section","kpi_key","kpi_name","formula_display","description","calculation_notes","green_rule","amber_rule","red_rule","owner_team","updated_at"])
+    for r in rows:
+        d = dict(r)
+        w.writerow([d.get("dept_name",""), d.get("section",""), d.get("kpi_key",""), d.get("kpi_name",""),
+                    d.get("formula_display",""), d.get("description",""), d.get("calculation_notes",""),
+                    d.get("green_rule",""), d.get("amber_rule",""), d.get("red_rule",""),
+                    d.get("owner_team",""), d.get("updated_at","")])
+    mem = io.BytesIO(output.getvalue().encode("utf-8"))
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="kpi_library_export.csv")
+
+@app.route("/admin/reset-demo", methods=["POST"])
+def reset_demo():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+    init_db()
+    flash("Demo database reset and re-seeded.", "success")
+    return redirect(url_for("dashboard"))
+
 if __name__ == "__main__":
     init_db()
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)

@@ -1,70 +1,60 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Create Report</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-<div class="container py-4">
-  <a href="/" class="text-decoration-none">← Back</a>
-  <h3 class="mt-2">Create Report</h3>
+{% extends "layout.html" %}
+{% set title="Create Report" %}
+{% set active="dashboard" %}
+{% block content %}
+<a href="{{ url_for('dashboard') }}">← Back</a>
+<h3 style="margin-top:10px;">Create Report</h3>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for cat, msg in messages %}
-        <div class="alert alert-{{cat}}">{{ msg }}</div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
+<div class="card" style="margin-top:12px;">
+  <div class="p">
+    <form method="post" action="{{ url_for('create') }}">
+      <div class="grid-2">
+        <div>
+          <label class="muted">Report ID</label>
+          <input name="report_id" placeholder="R005" required>
+        </div>
+        <div>
+          <label class="muted">Project</label>
+          <input name="project" placeholder="Delta" required>
+        </div>
+        <div>
+          <label class="muted">Week</label>
+          <input name="week" placeholder="W36" required>
+        </div>
+        <div>
+          <label class="muted">Owner</label>
+          <input name="owner" placeholder="GPSE4" required>
+        </div>
+        <div>
+          <label class="muted">Type</label>
+          <select name="report_type">
+            <option>Weekly</option>
+            <option>Incident</option>
+            <option>Leadership</option>
+          </select>
+        </div>
+        <div>
+          <label class="muted">Status</label>
+          <select name="status">
+            <option>Draft</option>
+            <option>Final</option>
+          </select>
+        </div>
+      </div>
 
-  <form class="card shadow-sm p-3 mt-3" method="post">
-    <div class="row g-2">
-      <div class="col-md-3">
-        <label class="form-label">Report ID</label>
-        <input class="form-control" name="report_id" placeholder="R005" required>
+      <div style="margin-top:10px;">
+        <label class="muted">Storage URL (SharePoint / Power BI link later)</label>
+        <input name="storage_url" placeholder="https://sharepoint/... or powerbi report url">
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Project</label>
-        <input class="form-control" name="project" placeholder="Delta" required>
+
+      <div style="margin-top:12px;">
+        <button class="btn primary" type="submit">Create</button>
       </div>
-      <div class="col-md-2">
-        <label class="form-label">Week</label>
-        <input class="form-control" name="week" placeholder="W36" required>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">Owner</label>
-        <input class="form-control" name="owner" placeholder="GPSE4" required>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">Type</label>
-        <select class="form-select" name="report_type">
-          <option>Weekly</option>
-          <option>Incident</option>
-          <option>Leadership</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Status</label>
-        <select class="form-select" name="status">
-          <option>Draft</option>
-          <option>Final</option>
-        </select>
-      </div>
-      <div class="col-md-9">
-        <label class="form-label">Storage URL (dummy now; SharePoint later)</label>
-        <input class="form-control" name="storage_url" placeholder="file:///C:/dummy/report.pptx or https://sharepoint/...">
-      </div>
-      <div class="col-12">
-        <button class="btn btn-primary mt-2">Create</button>
-      </div>
+    </form>
+
+    <div class="muted" style="margin-top:10px;">
+      Tip: In bank environments, keep this metadata-only and link to SharePoint/Power BI instead of uploading files.
     </div>
-  </form>
-
-  <div class="text-muted mt-3">
-    Tip: Demo storage-agnostic design by keeping dummy file URLs now and replacing later with SharePoint links.
   </div>
-
 </div>
-</body>
-</html>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% set title="Assistant" %}
+{% set active="assistant" %}
+{% block content %}
+
+<h3>Assistant (Definitions)</h3>
+<div class="muted">Safe search over KPI definitions stored in SQL. No external LLM.</div>
+
+<div class="card" style="margin-top:12px;">
+  <div class="p">
+    <form method="get" action="{{ url_for('assistant') }}">
+      <label class="muted">Ask a question (example: “What is SEV2 breach rate?”)</label>
+      <input name="q" value="{{ q }}" placeholder="Type KPI name / key / section / department">
+      <div style="margin-top:10px;display:flex;gap:10px;">
+        <button class="btn dark" type="submit">Search KPI Definitions</button>
+        <a class="btn outline" href="{{ url_for('assistant') }}">Clear</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if q %}
+  <div class="card" style="margin-top:12px;">
+    <div class="p">
+      <h4>Results</h4>
+      {% if results %}
+        <table>
+          <thead>
+            <tr>
+              <th>KPI</th><th>Dept / Section</th><th>Formula</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+              <tr>
+                <td><b>{{ r.kpi_name }}</b><div class="muted">{{ r.kpi_key }}</div></td>
+                <td>{{ r.dept_name }}<div class="muted">{{ r.section }}</div></td>
+                <td><code>{{ r.formula_display }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">No matches. Try “SEV2”, “CRI”, “MTTR”, “SLA”.</div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}
