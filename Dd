@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ title or "GPSE Hub" }}</title>
+
+  <!-- TEMP DEBUG STYLE -->
+  <style>
+    body { background:#f6f7fb; font-family: Arial; margin:0; }
+    .nav { background:#111827; color:white; padding:14px }
+    .container { padding:20px }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <b>GPSE HUB DEBUG NAV</b>
+</div>
+
+<div class="container">
+  {% block content %}
+  <h1>CONTENT BLOCK NOT OVERRIDDEN</h1>
+  {% endblock %}
+</div>
+
+</body>
+</html>
