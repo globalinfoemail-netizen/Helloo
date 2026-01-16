@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <title>KPI Library</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container mt-4">
+  <h3>KPI Master Library</h3>
+
+  <select id="dept" class="form-select mb-3"></select>
+
+  <ul id="kpis" class="list-group"></ul>
+
+  <div id="detail" class="card mt-3 p-3"></div>
+</div>
+
+<script>
+fetch("/api/departments").then(r=>r.json()).then(d=>{
+  let sel=document.getElementById("dept");
+  d.forEach(x=>{
+    let o=document.createElement("option");
+    o.value=x.dept_id;
+    o.text=x.dept_name;
+    sel.add(o);
+  });
+});
+
+document.getElementById("dept").onchange = function(){
+  fetch("/api/kpis/"+this.value).then(r=>r.json()).then(d=>{
+    let ul=document.getElementById("kpis");
+    ul.innerHTML="";
+    d.forEach(k=>{
+      let li=document.createElement("li");
+      li.className="list-group-item";
+      li.innerText=k.kpi_name;
+      li.onclick=()=>show(k.kpi_id);
+      ul.appendChild(li);
+    });
+  });
+};
+
+function show(id){
+  fetch("/api/kpi/"+id).then(r=>r.json()).then(k=>{
+    document.getElementById("detail").innerHTML = `
+      <b>Formula:</b><br>${k.formula}<hr>
+      <b>Green:</b> ${k.green_rule}<br>
+      <b>Amber:</b> ${k.amber_rule}<br>
+      <b>Red:</b> ${k.red_rule}
+    `;
+  });
+}
+</script>
+
+</body>
+</html>
