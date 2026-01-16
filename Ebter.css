@@ -1,0 +1,202 @@
+/* ===== BASE ===== */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f3f6fb;
+  color: #1f2937;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* ===== TOP NAV ===== */
+.nav {
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  padding: 14px 0;
+}
+
+.nav .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tabs {
+  display: flex;
+  gap: 18px;
+}
+
+.tab {
+  color: #cbd5f5;
+  font-weight: 500;
+  padding-bottom: 6px;
+}
+
+.tab.active {
+  color: #ffffff;
+  border-bottom: 3px solid #38bdf8;
+}
+
+/* ===== CONTAINER ===== */
+.container {
+  max-width: 1280px;
+  margin: 24px auto;
+  padding: 0 18px;
+}
+
+/* ===== HEADERS ===== */
+h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.muted {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+/* ===== KPI CARDS ===== */
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+}
+
+.card .p {
+  padding: 18px;
+}
+
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.kpi-green { color: #16a34a; }
+.kpi-amber { color: #d97706; }
+.kpi-red { color: #dc2626; }
+
+/* ===== BUTTONS ===== */
+.btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.btn.primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn.dark {
+  background: #0f172a;
+  color: #fff;
+}
+
+.btn.outline {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+
+/* ===== FILTER PANEL ===== */
+.filter-panel {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 20px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.05);
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+/* ===== INPUTS ===== */
+input, select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+/* ===== TABLE ===== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  padding: 12px;
+  background: #f1f5f9;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+}
+
+tr:hover {
+  background: #f8fafc;
+}
+
+/* ===== STATUS BADGES ===== */
+.badge {
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge.green {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge.amber {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ===== ALERTS ===== */
+.alert {
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
+
+.alert.success { background: #dcfce7; }
+.alert.danger { background: #fee2e2; }
+
+/* ===== UTILITIES ===== */
+.section {
+  margin-top: 24px;
+}
