@@ -1,0 +1,80 @@
+c.execute("""CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL
+)""")
+
+# seed one admin if empty
+if c.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0:
+    c.execute("INSERT INTO users(username,password,role) VALUES(?,?,?)", ("admin","admin123","admin"))
+    c.execute("INSERT INTO users(username,password,role) VALUES(?,?,?)", ("viewer","viewer123","viewer"))
+
+
+
+from flask import session
+
+@app.route("/login", methods=["GET","POST"])
+def login():
+    init_db()
+    if request.method == "POST":
+        u = request.form.get("username","").strip()
+        p = request.form.get("password","").strip()
+        with conn() as c:
+            row = c.execute("SELECT username, role FROM users WHERE username=? AND password=?", (u,p)).fetchone()
+        if row:
+            session["user"] = row["username"]
+            session["role"] = row["role"]
+            flash("Logged in.", "success")
+            return redirect(url_for("dashboard"))
+        flash("Invalid credentials.", "danger")
+    return render_template("login.html")
+
+
+
+
+from functools import wraps
+
+def require_role(*roles):
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            role = session.get("role")
+            if role not in roles:
+                flash("Access denied.", "danger")
+                return redirect(url_for("login"))
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
+@app.route("/create", methods=["GET","POST"])
+@require_role("admin","editor")
+def create():
+    ...
+
+
+@app.route("/dashboard")
+@require_role("admin","editor","viewer")
+def dashboard():
+    ...
+
+
+
+{% extends "layout.html" %}
+{% block content %}
+<h3>Login</h3>
+<form method="post">
+  <label class="muted">Username</label>
+  <input name="username" required>
+  <label class="muted">Password</label>
+  <input type="password" name="password" required>
+  <br><br>
+  <button class="btn primary">Login</button>
+</form>
+
+<p class="muted">Demo users: admin/admin123, viewer/viewer123</p>
+{% endblock %}
+
+
+
