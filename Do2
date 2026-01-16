@@ -1,0 +1,14 @@
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px }
+.row { display:flex; gap:16px; flex-wrap:wrap }
+.card { border:1px solid #e5e7eb; border-radius:12px; background:#fff }
+.p { padding:16px }
+.btn { padding:8px 12px; border-radius:8px; cursor:pointer }
+.btn.outline { border:1px solid #ccc; background:#fff }
+.btn.dark { background:#111; color:#fff }
+.btn.primary { background:#2563eb; color:#fff }
+.muted { color:#6b7280; font-size:13px }
+
+
+
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
