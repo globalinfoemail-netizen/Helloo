@@ -1,0 +1,40 @@
+-- Reports metadata
+CREATE TABLE reports (
+  report_id TEXT PRIMARY KEY,
+  project TEXT,
+  week TEXT,
+  owner TEXT,
+  report_type TEXT,
+  status TEXT,
+  storage_url TEXT,
+  updated_at TEXT
+);
+
+-- Version history
+CREATE TABLE report_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id TEXT,
+  version_no INTEGER,
+  notes TEXT,
+  updated_at TEXT
+);
+
+-- Departments
+CREATE TABLE departments (
+  dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dept_name TEXT UNIQUE
+);
+
+-- KPI master (THIS IS KEY)
+CREATE TABLE kpi_master (
+  kpi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dept_id INTEGER,
+  kpi_key TEXT,
+  kpi_name TEXT,
+  formula TEXT,
+  description TEXT,
+  green_rule TEXT,
+  amber_rule TEXT,
+  red_rule TEXT,
+  updated_at TEXT
+);
