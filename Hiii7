@@ -1,0 +1,242 @@
+{% extends "layout.html" %}
+{% set title="KPI Library" %}
+{% set active="kpi_library" %}
+{% block content %}
+
+<div class="row" style="align-items:center;justify-content:space-between;margin-bottom:12px;">
+  <div>
+    <h3>KPI Library</h3>
+    <div class="muted">
+      Unified KPI repository — select a KPI to view formula, definition, thresholds (stored in DB).
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <a class="btn outline" href="{{ url_for('export_kpi_master_csv') }}">Export KPI Library CSV</a>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- LEFT -->
+  <div class="card">
+    <div class="p">
+
+      <div class="grid-2">
+        <div>
+          <label class="muted">Department</label>
+          <select id="deptSelect"></select>
+        </div>
+        <div>
+          <label class="muted">Section</label>
+          <input id="sectionInput" placeholder="NFPE / Incident Mgmt / CRI / SEV2...">
+        </div>
+      </div>
+
+      <div style="margin-top:10px;" class="grid-2">
+        <div>
+          <label class="muted">Search</label>
+          <input id="searchInput" placeholder="Type KPI name/key">
+        </div>
+        <div style="display:flex;align-items:end;gap:10px;">
+          <button class="btn dark" style="width:100%;" onclick="loadKpis()">Load KPIs</button>
+        </div>
+      </div>
+
+      <!-- NEW: KPI dropdown -->
+      <div style="margin-top:10px;">
+        <label class="muted">KPI (Dropdown)</label>
+        <select id="kpiSelect" onchange="onKpiDropdownChange()">
+          <option value="">Loading…</option>
+        </select>
+        <div class="muted" id="kpiSelectHint" style="margin-top:6px;font-size:12px;">
+          Tip: Select a KPI from dropdown to view formula instantly.
+        </div>
+      </div>
+
+      <hr/>
+
+      <!-- Keep list (optional) -->
+      <div class="muted" style="margin-bottom:8px;">KPI List (click also works)</div>
+      <div id="kpiList" class="kpi-list" style="max-height:420px;overflow:auto;"></div>
+
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="card">
+    <div class="p">
+      <h4 id="kpiTitle">Select a KPI</h4>
+      <div id="kpiMeta" class="muted" style="margin-bottom:10px;"></div>
+
+      <div style="margin-top:10px;">
+        <div class="muted">Formula</div>
+        <div style="padding:12px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;">
+          <code id="kpiFormula">—</code>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="muted">Description</div>
+        <div id="kpiDesc">—</div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="muted">Calculation Notes</div>
+        <div id="kpiNotes">—</div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="muted">Thresholds</div>
+        <ul style="margin:8px 0 0 18px;">
+          <li><b>Green:</b> <span id="kpiGreen">—</span></li>
+          <li><b>Amber:</b> <span id="kpiAmber">—</span></li>
+          <li><b>Red:</b> <span id="kpiRed">—</span></li>
+        </ul>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="muted">Power BI / Integrations</div>
+        <div class="muted" style="font-size:13px;">KPI Master API:</div>
+        <div><code>http://127.0.0.1:5000/api/kpi_master</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function safeText(v){ return (v === null || v === undefined || v === "") ? "—" : String(v); }
+
+async function loadDepartments(){
+  const sel = document.getElementById("deptSelect");
+  sel.innerHTML = `<option value="">Loading…</option>`;
+
+  const res = await fetch("/api/departments");
+  if(!res.ok){
+    sel.innerHTML = `<option value="">Error loading</option>`;
+    return;
+  }
+
+  const data = await res.json();
+  sel.innerHTML = "";
+
+  // Add "All" option
+  const allOpt = document.createElement("option");
+  allOpt.value = "";
+  allOpt.textContent = "All Departments";
+  sel.appendChild(allOpt);
+
+  for(const d of data){
+    const opt = document.createElement("option");
+    opt.value = d.dept_id;
+    opt.textContent = d.dept_name;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadKpis(){
+  const dept = document.getElementById("deptSelect").value;
+  const section = document.getElementById("sectionInput").value.trim();
+  const search = document.getElementById("searchInput").value.trim();
+
+  const url = new URL("/api/kpis_list", window.location.origin);
+  if(dept) url.searchParams.set("dept_id", dept);
+  if(section) url.searchParams.set("section", section);
+  if(search) url.searchParams.set("search", search);
+
+  const res = await fetch(url.toString());
+  if(!res.ok){
+    document.getElementById("kpiList").innerHTML = "<div class='muted'>Error loading KPIs.</div>";
+    document.getElementById("kpiSelect").innerHTML = `<option value="">Error loading</option>`;
+    return;
+  }
+
+  const kpis = await res.json();
+
+  // Fill LIST (click)
+  const list = document.getElementById("kpiList");
+  list.innerHTML = "";
+
+  // Fill DROPDOWN
+  const kpiSelect = document.getElementById("kpiSelect");
+  kpiSelect.innerHTML = "";
+
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = kpis.length ? "-- Select KPI --" : "No KPIs found";
+  kpiSelect.appendChild(defaultOpt);
+
+  if(!kpis.length){
+    list.innerHTML = "<div class='muted'>No KPIs found for selected filters.</div>";
+    return;
+  }
+
+  for(const k of kpis){
+    // dropdown option
+    const opt = document.createElement("option");
+    opt.value = k.kpi_id;
+    opt.textContent = `${k.section} • ${k.kpi_name}`;
+    kpiSelect.appendChild(opt);
+
+    // list button
+    const btn = document.createElement("button");
+    btn.innerHTML = `
+      <div style="font-weight:700;">${k.kpi_name}</div>
+      <div class="muted" style="font-size:12px;">${k.section} • ${k.kpi_key}</div>
+    `;
+    btn.onclick = ()=> {
+      // Sync dropdown selection too
+      document.getElementById("kpiSelect").value = k.kpi_id;
+      loadKpi(k.kpi_id);
+    };
+    list.appendChild(btn);
+  }
+}
+
+function onKpiDropdownChange(){
+  const id = document.getElementById("kpiSelect").value;
+  if(!id){
+    clearKpiPanel();
+    return;
+  }
+  loadKpi(id);
+}
+
+function clearKpiPanel(){
+  document.getElementById("kpiTitle").textContent = "Select a KPI";
+  document.getElementById("kpiMeta").textContent = "";
+  document.getElementById("kpiFormula").textContent = "—";
+  document.getElementById("kpiDesc").textContent = "—";
+  document.getElementById("kpiNotes").textContent = "—";
+  document.getElementById("kpiGreen").textContent = "—";
+  document.getElementById("kpiAmber").textContent = "—";
+  document.getElementById("kpiRed").textContent = "—";
+}
+
+async function loadKpi(kpi_id){
+  // IMPORTANT: This must match your backend route: /api/kpi/<int:kpi_id>
+  const res = await fetch(`/api/kpi/${kpi_id}`);
+  if(!res.ok){
+    document.getElementById("kpiTitle").textContent = "Failed to load KPI";
+    document.getElementById("kpiMeta").textContent = "";
+    return;
+  }
+  const k = await res.json();
+
+  document.getElementById("kpiTitle").textContent = safeText(k.kpi_name);
+  document.getElementById("kpiMeta").textContent =
+    `${safeText(k.dept_name)} • ${safeText(k.section)} • ${safeText(k.kpi_key)} • Updated: ${safeText(k.updated_at)}`;
+
+  // These keys MUST match your DB columns used in app.py
+  document.getElementById("kpiFormula").textContent = safeText(k.formula_display);
+  document.getElementById("kpiDesc").textContent = safeText(k.description);
+  document.getElementById("kpiNotes").textContent = safeText(k.calculation_notes);
+
+  document.getElementById("kpiGreen").textContent = safeText(k.green_rule);
+  document.getElementById("kpiAmber").textContent = safeText(k.amber_rule);
+  document.getElementById("kpiRed").textContent = safeText(k.red_rule);
+}
+
+// initial load
+loadDepartments().then(loadKpis);
+</script>
+
+{% endblock %}
