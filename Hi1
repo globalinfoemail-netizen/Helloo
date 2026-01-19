@@ -1,0 +1,236 @@
+Perfect — your naming is consistent enough. We’ll treat:
+	•	Folder name = “department” (e.g., NPFE REPORTS, NPFS REPORTS, GPSE REPORTS)
+	•	Report ID = first part (RPT_101, RPT_001)
+	•	Type = Weekly (because filename contains Weekly)
+	•	Title = rest of filename (Servicenow Review, Review2, etc.)
+
+And yes, I’ll tell you exactly where to add the files = ... lines.
+
+⸻
+
+1) Your current folder layout should be like this
+
+Example root folder path you’ll enter in Import UI:
+
+C:\ReportsRoot\
+  GPSE REPORTS\
+    RPT_101_Weekly_Servicenow Review.pdf
+    RPT_101_Weekly_Servicenow Review.pptx
+    RPT_101_Weekly_Servicenow Review2.pdf
+    RPT_101_Weekly_Servicenow Review2.pptx
+
+  NPFE REPORTS\
+    ...
+
+  NPFS REPORTS\
+    RPT_001_Weekly_Review.pdf
+    RPT_001_Weekly_Review.pptx
+    RPT_001_Weekly_Review2.pdf
+    RPT_001_Weekly_Review2.pptx
+
+✅ If you don’t have pdf/ppt pairs, still fine.
+
+⸻
+
+2) Update filename parsing for YOUR naming (RPT_001_Weekly_Review)
+
+In your file_ingest.py, use this parsing instead of the old __ logic.
+
+Replace parse_filename() with this:
+
+from pathlib import Path
+
+def parse_filename(filename: str):
+    """
+    Example: RPT_001_Weekly_Review2.pdf
+    Returns: report_id="RPT_001", report_type="Weekly", title="Review2"
+    """
+    name = Path(filename).stem  # no extension
+    parts = name.split("_")
+
+    # Minimum: RPT, 001, Weekly, ...
+    if len(parts) >= 3:
+        report_id = f"{parts[0]}_{parts[1]}"  # RPT_001
+        report_type = parts[2]               # Weekly
+        title = " ".join(parts[3:]) if len(parts) > 3 else name
+        return report_id, report_type, title
+
+    # fallback
+    return name.upper(), "Unknown", name
+
+
+⸻
+
+3) Make importer match your V2 DB schema (project/week/owner/report_type)
+
+Your v2 DB schema is:
+
+reports(report_id, project, week, owner, report_type, status, storage_url, created_at, updated_at)
+
+So in your scan_and_import() function, insert with those columns.
+
+Replace scan_and_import() with this version:
+
+import os
+from pathlib import Path
+from datetime import datetime
+
+ALLOWED_EXT = {".pdf", ".ppt", ".pptx"}
+
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def scan_and_import(db_conn, root_folder: str):
+    root = Path(root_folder)
+    if not root.exists():
+        raise FileNotFoundError(f"Root folder not found: {root_folder}")
+
+    imported_files = 0
+    imported_reports = 0
+
+    for dept_dir in root.iterdir():
+        if not dept_dir.is_dir():
+            continue
+
+        project = dept_dir.name  # folder name: "NPFS REPORTS" etc.
+
+        for f in dept_dir.rglob("*"):
+            if not f.is_file():
+                continue
+
+            ext = f.suffix.lower()
+            if ext not in ALLOWED_EXT:
+                continue
+
+            report_id, report_type, title = parse_filename(f.name)
+
+            # Week is unknown from filename, keep a placeholder for now
+            week = "W??"
+            owner = "GPSE"
+            status = "Draft"
+            storage_url = str(f)  # local path for now
+
+            # Create report if not exists
+            exists = db_conn.execute(
+                "SELECT 1 FROM reports WHERE report_id=?",
+                (report_id,)
+            ).fetchone()
+
+            if not exists:
+                db_conn.execute("""
+                    INSERT INTO reports
+                    (report_id, project, week, owner, report_type, status, storage_url, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                """, (report_id, project, week, owner, report_type, status, storage_url, _now(), _now()))
+                imported_reports += 1
+
+            # Insert file record (avoid duplicates)
+            already = db_conn.execute("""
+                SELECT 1 FROM report_files
+                WHERE report_id=? AND stored_path=?
+            """, (report_id, str(f))).fetchone()
+
+            if not already:
+                file_type = "pdf" if ext == ".pdf" else "pptx"
+                db_conn.execute("""
+                    INSERT INTO report_files(report_id, filename, stored_path, file_type, created_at)
+                    VALUES (?,?,?,?,?)
+                """, (report_id, f.name, str(f), file_type, _now()))
+                imported_files += 1
+
+            db_conn.execute("UPDATE reports SET updated_at=? WHERE report_id=?", (_now(), report_id))
+
+    return {"imported_reports": imported_reports, "imported_files": imported_files}
+
+✅ Now it perfectly matches your v2 schema.
+
+⸻
+
+4) EXACTLY where to add the files = ... line
+
+Open your app.py and find this function:
+
+@app.route("/report/<report_id>")
+def report_detail(report_id):
+    with conn() as c:
+        report = c.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
+        if not report:
+            return "Report not found", 404
+        versions = c.execute("SELECT * FROM versions WHERE report_id=? ORDER BY version_no DESC", (report_id,)).fetchall()
+        kpi_latest = c.execute("SELECT * FROM kpis WHERE report_id=? ORDER BY created_at DESC LIMIT 1", (report_id,)).fetchone()
+    return render_template("report_detail.html", report=report, versions=versions, kpi=kpi_latest)
+
+Replace it with this (ONLY change is adding files and passing it):
+
+@app.route("/report/<report_id>")
+def report_detail(report_id):
+    with conn() as c:
+        report = c.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
+        if not report:
+            return "Report not found", 404
+
+        versions = c.execute(
+            "SELECT * FROM versions WHERE report_id=? ORDER BY version_no DESC",
+            (report_id,)
+        ).fetchall()
+
+        kpi_latest = c.execute(
+            "SELECT * FROM kpis WHERE report_id=? ORDER BY created_at DESC LIMIT 1",
+            (report_id,)
+        ).fetchone()
+
+        # ✅ ADD THIS LINE HERE (inside the with conn block)
+        files = c.execute(
+            "SELECT * FROM report_files WHERE report_id=? ORDER BY id DESC",
+            (report_id,)
+        ).fetchall()
+
+    # ✅ PASS files here
+    return render_template(
+        "report_detail.html",
+        report=report,
+        versions=versions,
+        kpi=kpi_latest,
+        files=files
+    )
+
+That’s it.
+
+⸻
+
+5) Also: confirm you created report_files table
+
+Inside your init_db() add:
+
+c.execute("""CREATE TABLE IF NOT EXISTS report_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(report_id) REFERENCES reports(report_id)
+)""")
+
+
+⸻
+
+6) Now how you run the import
+
+Run Flask, then open:
+
+http://127.0.0.1:5000/admin/import
+
+Enter your root folder like:
+
+C:\ReportsRoot
+
+Click import.
+
+Then open dashboard and you’ll see:
+	•	RPT_001, RPT_101 etc.
+	•	Click View → attached PDFs/PPTs show.
+
+⸻
+
+If you want, paste your current def report_detail(report_id): from app.py and I’ll rewrite it exactly in your file style so you can copy-paste safely with zero mismatch.
