@@ -1,0 +1,208 @@
+Perfect — PPTX is the best case. Now you can get a working “AI summary” button today.
+
+Below is the minimum, safe change set (so you don’t break your portal). You’ll add 2 new files + 1 endpoint + 1 UI button.
+
+⸻
+
+1) Install dependency (inside your active venv)
+
+In VS Code terminal (where (.venv) is visible):
+
+python -m pip install python-pptx
+
+
+⸻
+
+2) Create file: backend/ppt_extract.py
+
+(If your backend folder name is just backend, keep it there.)
+
+from pathlib import Path
+from pptx import Presentation
+
+def extract_pptx_text(pptx_path: str) -> str:
+    """
+    Extract visible text from PPTX slides.
+    Returns a single text blob.
+    """
+    pptx_path = str(Path(pptx_path))
+    prs = Presentation(pptx_path)
+
+    chunks = []
+    for i, slide in enumerate(prs.slides, start=1):
+        slide_lines = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text:
+                t = shape.text.strip()
+                if t:
+                    slide_lines.append(t)
+        if slide_lines:
+            chunks.append(f"[Slide {i}]\n" + "\n".join(slide_lines))
+
+    return "\n\n".join(chunks).strip()
+
+
+⸻
+
+3) Create file: backend/ai_agent.py
+
+import re
+from collections import Counter
+
+RISK_WORDS = ["risk", "issue", "concern", "blocker", "delay", "incident", "outage", "sev", "p1", "p2"]
+ACTION_WORDS = ["action", "next", "plan", "mitigation", "owner", "due", "follow-up", "update", "fix"]
+
+def summarize_text_rule_based(text: str) -> dict:
+    """
+    Bank-safe summarizer (NO external LLM).
+    Returns structured summary for UI.
+    """
+    if not text:
+        return {
+            "executive_summary": ["No readable text found in PPTX."],
+            "kpis": [],
+            "risks_issues": [],
+            "actions": [],
+        }
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    clean = [ln for ln in lines if not ln.startswith("[Slide ")]
+
+    # KPI-like lines
+    kpi_lines = []
+    for ln in clean:
+        if re.search(r"\b(SLA|MTTR|P1|P2|SEV|availability|uptime|latency|error|breach)\b", ln, re.I):
+            kpi_lines.append(ln)
+
+    risks = [ln for ln in clean if any(w in ln.lower() for w in RISK_WORDS)]
+    actions = [ln for ln in clean if any(w in ln.lower() for w in ACTION_WORDS)]
+
+    words = re.findall(r"[A-Za-z0-9%\-]+", " ".join(clean).lower())
+    freq = Counter(words)
+
+    candidates = [ln for ln in clean if len(ln) <= 160]
+    scored = []
+    for ln in candidates:
+        tokens = re.findall(r"[A-Za-z0-9%\-]+", ln.lower())
+        if not tokens:
+            continue
+        score = sum(1 / (freq[t] + 1) for t in tokens)
+        if any(w in ln.lower() for w in RISK_WORDS):
+            score += 0.25
+        scored.append((score, ln))
+    scored.sort(reverse=True, key=lambda x: x[0])
+
+    def uniq(xs):
+        seen = set()
+        out = []
+        for x in xs:
+            k = x.lower()
+            if k not in seen:
+                out.append(x)
+                seen.add(k)
+        return out
+
+    exec_summary = uniq([x[1] for x in scored])[:6] if scored else clean[:6]
+
+    return {
+        "executive_summary": exec_summary,
+        "kpis": uniq(kpi_lines)[:12],
+        "risks_issues": uniq(risks)[:12],
+        "actions": uniq(actions)[:12],
+    }
+
+
+⸻
+
+4) Add endpoint in your backend app.py
+
+Add these imports near the top:
+
+import json
+from ppt_extract import extract_pptx_text
+from ai_agent import summarize_text_rule_based
+
+Then add this route (copy-paste):
+
+@app.route("/api/files/<int:file_id>/summarize", methods=["POST"])
+def summarize_ppt(file_id: int):
+    init_db(seed=True)
+    actor = get_actor()
+
+    with connect() as c:
+        row = c.execute("SELECT * FROM report_files WHERE id=?", (file_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+
+        f = dict(row)
+
+        # Only pptx supported
+        if (f.get("file_type") or "").lower() != "pptx":
+            return jsonify({"error": "only_pptx_supported"}), 400
+
+        ppt_path = f["stored_path"]  # must be full path if you saved full path
+        text = extract_pptx_text(ppt_path)
+        summary_obj = summarize_text_rule_based(text)
+
+        c.execute(
+            "UPDATE report_files SET extracted_text=?, summary=? WHERE id=?",
+            (text, json.dumps(summary_obj, ensure_ascii=False), file_id),
+        )
+        audit(c, actor, "SUMMARIZE_PPT", "file", str(file_id), f.get("filename",""))
+
+    return jsonify({"ok": True, "summary": summary_obj})
+
+✅ This saves summary in DB + returns it to UI.
+
+⸻
+
+5) Frontend: add “Summarize” button (React OR HTML?)
+
+Tell me what you’re using right now:
+	•	React UI (5173) OR
+	•	HTML templates (Flask render_template)
+
+I’ll give the exact snippet accordingly.
+
+If you’re on Flask HTML (quick fix)
+
+Where you list files in report_detail.html, add:
+
+<button class="btn outline" onclick="summarizeFile({{ f.id }})">Summarize PPT</button>
+<pre id="sum_{{ f.id }}" style="white-space:pre-wrap;background:#0b1220;color:#e5e7eb;padding:10px;border-radius:10px;margin-top:8px;"></pre>
+
+Add this script once at bottom:
+
+<script>
+async function summarizeFile(id){
+  const res = await fetch(`/api/files/${id}/summarize`, {method:"POST"});
+  const data = await res.json();
+  const el = document.getElementById(`sum_${id}`);
+  el.textContent = data.ok ? JSON.stringify(data.summary, null, 2) : JSON.stringify(data, null, 2);
+}
+</script>
+
+
+⸻
+
+6) Test (fast)
+	1.	Run backend:
+
+python app.py
+
+	2.	Open report detail page and click Summarize PPT
+
+If it errors, tell me:
+	•	what is stored in DB for report_files.stored_path (full path or token name)
+	•	paste the error
+
+⸻
+
+Bank-ready explanation to tell manager (1 line)
+
+“We built an internal-safe AI summarizer that reads slide text from PPTX, extracts key KPIs/risks/actions, and stores a structured summary with audit logging—no external LLM dependency.”
+
+⸻
+
+Now answer only this so I give the exact UI change:
+Are you running React (localhost:5173) or Flask HTML (localhost:5000 templates)?
