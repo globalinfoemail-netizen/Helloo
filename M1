@@ -1,0 +1,55 @@
+@app.route("/dashboard")
+def dashboard():
+    q = request.args.get("q", "").strip()
+    project = request.args.get("project", "")
+    week = request.args.get("week", "")
+    owner = request.args.get("owner", "")
+    report_type = request.args.get("report_type", "")
+
+    sql = """
+        SELECT r.*, COUNT(f.id) AS file_count
+        FROM reports r
+        LEFT JOIN report_files f ON f.report_id = r.report_id
+        WHERE 1=1
+    """
+    params = []
+
+    if q:
+        sql += " AND (r.report_id LIKE ? OR r.project LIKE ? OR r.owner LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+
+    if project:
+        sql += " AND r.project=?"
+        params.append(project)
+
+    if week:
+        sql += " AND r.week=?"
+        params.append(week)
+
+    if owner:
+        sql += " AND r.owner=?"
+        params.append(owner)
+
+    if report_type:
+        sql += " AND r.report_type=?"
+        params.append(report_type)
+
+    sql += " GROUP BY r.report_id ORDER BY r.updated_at DESC"
+
+    with connect() as c:
+        reports = c.execute(sql, params).fetchall()
+
+        projects = [r["project"] for r in c.execute("SELECT DISTINCT project FROM reports")]
+        weeks = [r["week"] for r in c.execute("SELECT DISTINCT week FROM reports")]
+        owners = [r["owner"] for r in c.execute("SELECT DISTINCT owner FROM reports")]
+        types = [r["report_type"] for r in c.execute("SELECT DISTINCT report_type FROM reports")]
+
+    return render_template(
+        "dashboard.html",
+        reports=reports,
+        projects=projects,
+        weeks=weeks,
+        owners=owners,
+        types=types,
+        cards={},  # keep if already used
+    )
