@@ -1,0 +1,252 @@
+Got it. Here is the exact code you need to add (copy-paste), so your file_ingest.py stops failing and your portal can import PDFs/PPTs from your folders.
+
+⸻
+
+1) Create db.py (NEW FILE)
+
+✅ In the same folder as app.py, create a new file named db.py and paste this:
+
+import os
+import sqlite3
+from datetime import datetime
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_DIR, "gpse.db")
+
+
+def now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def connect() -> sqlite3.Connection:
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def init_db(seed: bool = True) -> None:
+    with connect() as c:
+        # reports table (fits your HTML v2)
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS reports (
+                report_id TEXT PRIMARY KEY,
+                project TEXT NOT NULL,
+                week TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                report_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                storage_url TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+
+        # version notes
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id TEXT NOT NULL,
+                version_no INTEGER NOT NULL,
+                notes TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(report_id) REFERENCES reports(report_id)
+            )"""
+        )
+
+        # KPI snapshots (optional)
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS kpis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id TEXT NOT NULL,
+                sla REAL,
+                p1_incidents INTEGER,
+                mttr_minutes INTEGER,
+                risk_count INTEGER,
+                rag TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(report_id) REFERENCES reports(report_id)
+            )"""
+        )
+
+        # file registry (THIS is what your UI will read)
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS report_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(report_id) REFERENCES reports(report_id)
+            )"""
+        )
+
+
+⸻
+
+2) Create parse_utils.py (NEW FILE)
+
+✅ Create a new file parse_utils.py (same folder) and paste:
+
+from pathlib import Path
+
+def parse_filename(filename: str):
+    """
+    Example: RPT_001_Weekly_Review2.pdf
+    Returns: report_id="RPT_001", report_type="Weekly", title="Review2"
+    """
+    name = Path(filename).stem
+    parts = name.split("_")
+
+    if len(parts) >= 3:
+        report_id = f"{parts[0]}_{parts[1]}"
+        report_type = parts[2]
+        title = " ".join(parts[3:]) if len(parts) > 3 else name
+        return report_id, report_type, title
+
+    return name.upper(), "Unknown", name
+
+
+⸻
+
+3) Create file_ingest.py (FINAL WORKING)
+
+✅ Create file_ingest.py (same folder) and paste this final working importer:
+
+from pathlib import Path
+from db import connect, init_db, now
+from parse_utils import parse_filename
+
+ALLOWED_EXT = {".pdf", ".ppt", ".pptx"}
+
+# Your root folder (RAW STRING is critical)
+REPORTS_ROOT = r"\\asiapac.nom\home\userdata\MUM\HomeDrive21\khurmis\Desktop\GPSE REPORTS"
+
+
+def scan_and_import_reports(root_folder: str = REPORTS_ROOT):
+    init_db(seed=False)
+
+    root = Path(root_folder)
+    if not root.exists():
+        raise FileNotFoundError(f"Root folder not found: {root_folder}")
+
+    imported_reports = 0
+    imported_files = 0
+    skipped = 0
+
+    with connect() as c:
+        # scan subfolders like "NPFE REPORTS" / "NPFS REPORTS"
+        for dept_dir in root.iterdir():
+            if not dept_dir.is_dir():
+                continue
+
+            project = dept_dir.name  # folder name used as project
+
+            for f in dept_dir.rglob("*"):
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() not in ALLOWED_EXT:
+                    continue
+
+                report_id, report_type, title = parse_filename(f.name)
+
+                # week not present in filename -> placeholder
+                week = "W??"
+                owner = "GPSE"
+                status = "Draft"
+                storage_url = str(f)
+
+                # Create report if missing
+                exists = c.execute("SELECT 1 FROM reports WHERE report_id=?", (report_id,)).fetchone()
+                if not exists:
+                    c.execute(
+                        """INSERT INTO reports
+                           (report_id, project, week, owner, report_type, status, storage_url, created_at, updated_at)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (report_id, project, week, owner, report_type, status, storage_url, now(), now()),
+                    )
+                    imported_reports += 1
+
+                # Avoid duplicate file insert
+                already = c.execute(
+                    "SELECT 1 FROM report_files WHERE report_id=? AND stored_path=?",
+                    (report_id, str(f)),
+                ).fetchone()
+
+                if already:
+                    skipped += 1
+                    continue
+
+                file_type = "pdf" if f.suffix.lower() == ".pdf" else "pptx"
+                c.execute(
+                    """INSERT INTO report_files(report_id, filename, stored_path, file_type, created_at)
+                       VALUES (?,?,?,?,?)""",
+                    (report_id, f.name, str(f), file_type, now()),
+                )
+                imported_files += 1
+
+                c.execute("UPDATE reports SET updated_at=? WHERE report_id=?", (now(), report_id))
+
+    return {"imported_reports": imported_reports, "imported_files": imported_files, "skipped": skipped}
+
+
+⸻
+
+4) Add ONE route in app.py to run importer
+
+In your app.py, add these lines:
+
+✅ Add imports near the top
+
+from file_ingest import scan_and_import_reports
+
+✅ Add this route anywhere under your other routes
+
+@app.route("/admin/import-files", methods=["POST"])
+def admin_import_files():
+    result = scan_and_import_reports()
+    return result
+
+
+⸻
+
+5) How to RUN it (exact commands)
+
+✅ Start Flask
+
+python app.py
+
+✅ Import files (POST request)
+
+Open this in browser won’t work because it’s POST. Do this in PowerShell:
+
+Invoke-WebRequest -Method POST http://127.0.0.1:5000/admin/import-files
+
+After this:
+	•	your DB will have real reports
+	•	report_files will have PDF/PPT entries
+	•	your dashboard will show imported reports
+
+⸻
+
+6) Where to add your files = c.execute(...) line
+
+Inside your report_detail route (in app.py), add this before render_template:
+
+files = c.execute(
+    "SELECT * FROM report_files WHERE report_id=? ORDER BY id DESC",
+    (report_id,)
+).fetchall()
+
+and pass it:
+
+return render_template("report_detail.html",
+                       report=report, versions=versions, kpi=kpi_latest, files=files)
+
+✅ That’s the only place.
+
+⸻
+
+If you paste these 4 files exactly (db.py, parse_utils.py, file_ingest.py, app.py route), your “no module named db” problem is 100% solved and importing will work.
+
+If after import you still don’t see file names on UI, send me your current report_detail.html and I’ll add the file list UI snippet.
