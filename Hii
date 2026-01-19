@@ -1,0 +1,286 @@
+Got it — you want the HTML-only v2 (Flask + templates) to read files from folders (npfs/npe) first, and show them in the dashboard.
+
+Below is copy-paste code to add to your v2 HTML Flask project (the one with dashboard.html, create.html, etc.). This will:
+
+✅ Scan a root folder like C:\GPSE_REPORTS\
+✅ Auto-import PDF + PPTX from subfolders (npfs, npe)
+✅ Create reports automatically (report_id derived from filename)
+✅ Attach files to each report
+✅ Show them in UI + allow download
+✅ No external APIs / no Power BI required right now
+
+⸻
+
+✅ 1) Create folder structure
+
+Make this:
+
+C:\GPSE_REPORTS\
+  npfs\
+    <pdf/pptx files>
+  npe\
+    <pdf/pptx files>
+
+
+⸻
+
+✅ 2) File naming rule (simple)
+
+Rename files like this (recommended):
+
+RPT-001__W04__WeeklyHealthcheck.pdf
+RPT-001__W04__WeeklyHealthcheck.pptx
+
+If you can’t rename, still works — but report_id will be auto-generated.
+
+⸻
+
+✅ 3) Add code: file_ingest.py (NEW FILE)
+
+Create file_ingest.py in same folder as app.py:
+
+import os
+import re
+from pathlib import Path
+from datetime import datetime
+
+ALLOWED_EXT = {".pdf", ".ppt", ".pptx"}
+
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def parse_filename(filename: str):
+    """
+    Expected: RPT-001__W04__Title.pdf
+    Returns: report_id, week, title
+    """
+    name = Path(filename).stem
+    parts = name.split("__")
+    if len(parts) >= 3:
+        report_id = parts[0].strip()
+        week = parts[1].strip()
+        title = "__".join(parts[2:]).strip()
+        return report_id, week, title
+
+    # fallback: generate safe id
+    safe = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")[:20]
+    report_id = f"AUTO-{safe}".upper()
+    return report_id, "W??", name
+
+def scan_and_import(db_conn, root_folder: str):
+    """
+    Scans root_folder and imports files under each subfolder
+    Treat subfolder name as department.
+    """
+    root = Path(root_folder)
+    if not root.exists():
+        raise FileNotFoundError(f"Root folder not found: {root_folder}")
+
+    imported_files = 0
+    imported_reports = 0
+
+    for dept_dir in root.iterdir():
+        if not dept_dir.is_dir():
+            continue
+
+        department = dept_dir.name.upper()
+
+        for f in dept_dir.rglob("*"):
+            if not f.is_file():
+                continue
+            ext = f.suffix.lower()
+            if ext not in ALLOWED_EXT:
+                continue
+
+            report_id, week, title = parse_filename(f.name)
+            section = department  # keep section same for now
+            owner = "GPSE"
+            status = "Draft"
+
+            # Create report if doesn't exist
+            exists = db_conn.execute(
+                "SELECT 1 FROM reports WHERE report_id=?",
+                (report_id,)
+            ).fetchone()
+
+            if not exists:
+                db_conn.execute("""
+                INSERT INTO reports(report_id, title, department, section, week, owner, status, storage_url, created_at, updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                """, (report_id, title, department, section, week, owner, status, "", _now(), _now()))
+                imported_reports += 1
+
+            # Insert file record if not already inserted
+            already = db_conn.execute("""
+                SELECT 1 FROM report_files
+                WHERE report_id=? AND stored_path=?
+            """, (report_id, str(f))).fetchone()
+
+            if not already:
+                file_type = "pdf" if ext == ".pdf" else "pptx"
+                db_conn.execute("""
+                INSERT INTO report_files(report_id, filename, stored_path, file_type, created_at)
+                VALUES(?,?,?,?,?)
+                """, (report_id, f.name, str(f), file_type, _now()))
+                imported_files += 1
+
+            # Update report updated_at
+            db_conn.execute("UPDATE reports SET updated_at=? WHERE report_id=?", (_now(), report_id))
+
+    return {"imported_reports": imported_reports, "imported_files": imported_files}
+
+
+⸻
+
+✅ 4) Update your DB (add report_files table)
+
+In your app.py inside init_db(), add this table:
+
+c.execute("""CREATE TABLE IF NOT EXISTS report_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(report_id) REFERENCES reports(report_id)
+)""")
+
+Also: your reports table in v2 uses columns like project/week/owner etc.
+If your v2 schema is different, tell me and I’ll adjust.
+
+⸻
+
+✅ 5) Add routes to app.py
+
+At top import:
+
+from file_ingest import scan_and_import
+
+Add these routes:
+
+@app.route("/admin/import", methods=["GET","POST"])
+def admin_import():
+    if request.method == "POST":
+        folder = request.form.get("folder","").strip()
+        if not folder:
+            flash("Folder path required", "danger")
+            return redirect(url_for("admin_import"))
+
+        try:
+            with conn() as c:
+                res = scan_and_import(c, folder)
+            flash(f"Imported reports={res['imported_reports']} files={res['imported_files']}", "success")
+        except Exception as e:
+            flash(f"Import failed: {e}", "danger")
+
+        return redirect(url_for("dashboard"))
+
+    return render_template("import.html")
+
+Add file download:
+
+@app.route("/download/<int:file_id>")
+def download(file_id):
+    with conn() as c:
+        row = c.execute("SELECT * FROM report_files WHERE id=?", (file_id,)).fetchone()
+    if not row:
+        return "File not found", 404
+    return send_file(row["stored_path"], as_attachment=True, download_name=row["filename"])
+
+
+⸻
+
+✅ 6) Add UI page: templates/import.html
+
+Create templates/import.html:
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Import Folder</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4">
+  <a href="/" class="text-decoration-none">← Back</a>
+  <h3 class="mt-2">Import Reports from Folder</h3>
+
+  <form class="card p-3 mt-3" method="post">
+    <label class="form-label">Root Folder Path</label>
+    <input class="form-control" name="folder" placeholder="C:\GPSE_REPORTS" required>
+    <button class="btn btn-primary mt-3">Import</button>
+  </form>
+
+  <div class="text-muted mt-3">
+    Folder should contain subfolders like <b>npfs</b>, <b>npe</b> with PDF/PPTX files.
+  </div>
+</div>
+</body>
+</html>
+
+
+⸻
+
+✅ 7) Show attached files in report_detail.html
+
+In your report detail page, add this after KPI section:
+
+<div class="card shadow-sm mt-3">
+  <div class="card-body">
+    <h5>Attached Files</h5>
+    {% if files %}
+      {% for f in files %}
+        <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+          <div>
+            <b>{{ f.filename }}</b>
+            <div class="text-muted small">{{ f.file_type }} • {{ f.created_at }}</div>
+          </div>
+          <a class="btn btn-sm btn-outline-primary" href="/download/{{ f.id }}">Download</a>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted">No files imported yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+And in your report_detail() route, fetch files:
+
+files = c.execute("SELECT * FROM report_files WHERE report_id=? ORDER BY id DESC", (report_id,)).fetchall()
+return render_template("report_detail.html", report=report, versions=versions, kpi=kpi_latest, files=files)
+
+
+⸻
+
+✅ 8) Run it (exact commands)
+
+In terminal:
+
+cd <your v2 folder>
+python app.py
+
+Open:
+	•	Dashboard: http://127.0.0.1:5000/
+	•	Import: http://127.0.0.1:5000/admin/import
+
+Enter:
+
+C:\GPSE_REPORTS
+
+Then refresh dashboard → reports appear → open report → files downloadable.
+
+⸻
+
+If your v2 “reports” table columns are different
+
+Your posted v2 code uses:
+reports(report_id, project, week, owner, report_type, status, storage_url...)
+
+But this importer code uses:
+title, department, section...
+
+So tell me which schema you’re using (just paste your CREATE TABLE reports) and I’ll give you the exact correct importer code for your version without mismatch.
+
+If you paste your CREATE TABLE reports from your v2, I’ll rewrite the importer in the exact same format in one shot.
