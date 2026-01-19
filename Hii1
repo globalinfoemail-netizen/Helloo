@@ -1,0 +1,106 @@
+<h3>KPI Library</h3>
+<div class="muted">Select a KPI from the unified library to view formula and rules.</div>
+
+<div class="card" style="margin-top:12px;">
+  <div class="p">
+    <div class="grid-2">
+
+      <div>
+        <label class="muted">Department (optional)</label>
+        <select id="deptSelect">
+          <option value="">All Departments</option>
+          <option value="NFPE">NFPE</option>
+          <option value="Incident">Incident</option>
+          <option value="Service Desk">Service Desk</option>
+          <option value="Ops">Ops</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="muted">Select KPI</label>
+        <select id="kpiSelect">
+          <option value="">Loading KPIs...</option>
+        </select>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px;">
+  <div class="p" id="kpiDetails">
+    <div class="muted">Select a KPI to see formula and rules.</div>
+  </div>
+</div>
+
+<script>
+async function loadKpis() {
+  const dept = document.getElementById("deptSelect").value;
+  const kpiSelect = document.getElementById("kpiSelect");
+
+  kpiSelect.innerHTML = `<option value="">Loading...</option>`;
+
+  const url = dept ? `/api/kpi/dropdown?department=${encodeURIComponent(dept)}` : `/api/kpi/dropdown`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  kpiSelect.innerHTML = `<option value="">-- Choose KPI --</option>`;
+
+  data.forEach(k => {
+    const opt = document.createElement("option");
+    opt.value = k.kpi_id;
+    opt.textContent = `${k.department} • ${k.section} • ${k.kpi_name}`;
+    kpiSelect.appendChild(opt);
+  });
+}
+
+async function showKpiDetails() {
+  const kpiId = document.getElementById("kpiSelect").value;
+  const box = document.getElementById("kpiDetails");
+
+  if (!kpiId) {
+    box.innerHTML = `<div class="muted">Select a KPI to see formula and rules.</div>`;
+    return;
+  }
+
+  const res = await fetch(`/api/kpi/defs/${kpiId}`);
+  const k = await res.json();
+
+  box.innerHTML = `
+    <h4 style="margin:0;">${k.kpi_name}</h4>
+    <div class="muted">${k.department} • ${k.section} • ${k.kpi_key}</div>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Formula</div>
+      <div style="font-weight:600;">${k.formula_display}</div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Description</div>
+      <div>${k.description || "-"}</div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Rules</div>
+      <div>🟢 Green: ${k.green_rule || "-"} </div>
+      <div>🟠 Amber: ${k.amber_rule || "-"} </div>
+      <div>🔴 Red: ${k.red_rule || "-"} </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Calculation Notes</div>
+      <div>${k.calc_notes || "-"}</div>
+    </div>
+  `;
+}
+
+document.getElementById("deptSelect").addEventListener("change", async () => {
+  await loadKpis();
+  document.getElementById("kpiDetails").innerHTML = `<div class="muted">Select a KPI to see formula and rules.</div>`;
+});
+
+document.getElementById("kpiSelect").addEventListener("change", showKpiDetails);
+
+// first load
+loadKpis();
+</script>
