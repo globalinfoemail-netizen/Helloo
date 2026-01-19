@@ -1,0 +1,188 @@
+Cool — you want one global search on the dashboard that can search across:
+	•	report metadata (project/department/week/owner/type)
+	•	fetched files (PDF/PPT filename + folder like NPFE/NPFS)
+	•	filters: department/project, week, month, date range
+	•	and show matching results.
+
+Since you’re on the v2 HTML (Flask + SQLite) version, here are the exact minimal changes (no rewriting your whole app).
+
+⸻
+
+1) Add these columns (only if missing)
+
+Your report_files table must have at least:
+	•	filename
+	•	stored_path
+	•	created_at (or ingested_at)
+	•	file_type
+
+If you don’t have created_at, add it in init_db():
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS report_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)
+""")
+
+
+⸻
+
+2) Backend: update the /dashboard route query
+
+Replace your dashboard SQL building with this pattern (adds file search + filters).
+
+✅ Paste inside dashboard() (v2 HTML app.py)
+
+@app.route("/dashboard")
+def dashboard():
+    init_db()
+
+    q = (request.args.get("q") or "").strip().lower()
+    project = (request.args.get("project") or "").strip()
+    week = (request.args.get("week") or "").strip()
+    owner = (request.args.get("owner") or "").strip()
+    report_type = (request.args.get("report_type") or "").strip()
+
+    # NEW filters
+    dept = (request.args.get("dept") or "").strip()          # NPFE REPORTS / NPFS REPORTS / etc
+    month = (request.args.get("month") or "").strip()        # YYYY-MM
+    date_from = (request.args.get("from") or "").strip()     # YYYY-MM-DD
+    date_to = (request.args.get("to") or "").strip()         # YYYY-MM-DD
+
+    sql = """
+    SELECT DISTINCT r.*
+    FROM reports r
+    LEFT JOIN report_files f ON f.report_id = r.report_id
+    WHERE 1=1
+    """
+    params = []
+
+    # Search across reports + files
+    if q:
+        sql += """ AND (
+            lower(r.report_id) LIKE ?
+            OR lower(r.project) LIKE ?
+            OR lower(r.owner) LIKE ?
+            OR lower(r.report_type) LIKE ?
+            OR lower(IFNULL(f.filename,'')) LIKE ?
+            OR lower(IFNULL(f.stored_path,'')) LIKE ?
+        )"""
+        params += [f"%{q}%"] * 6
+
+    # existing filters
+    if project:
+        sql += " AND r.project=?"; params.append(project)
+    if week:
+        sql += " AND r.week=?"; params.append(week)
+    if owner:
+        sql += " AND r.owner=?"; params.append(owner)
+    if report_type:
+        sql += " AND r.report_type=?"; params.append(report_type)
+
+    # NEW dept filter (uses report.project = folder name like NPFE REPORTS)
+    if dept:
+        sql += " AND r.project=?"; params.append(dept)
+
+    # NEW month filter (works if created_at is like 'YYYY-MM-DD ...')
+    if month:
+        sql += " AND substr(r.updated_at,1,7)=?"; params.append(month)
+
+    # NEW date range filter (on report_files.created_at if you want file-date based; else use r.updated_at)
+    if date_from:
+        sql += " AND r.updated_at >= ?"; params.append(date_from)
+    if date_to:
+        sql += " AND r.updated_at <= ?"; params.append(date_to + " 23:59:59")
+
+    sql += " ORDER BY r.updated_at DESC"
+
+    with conn() as c:
+        reports = c.execute(sql, params).fetchall()
+
+        # dropdowns
+        projects = [r["project"] for r in c.execute("SELECT DISTINCT project FROM reports ORDER BY project").fetchall()]
+        weeks = [r["week"] for r in c.execute("SELECT DISTINCT week FROM reports ORDER BY week DESC").fetchall()]
+        owners = [r["owner"] for r in c.execute("SELECT DISTINCT owner FROM reports ORDER BY owner").fetchall()]
+        types = [r["report_type"] for r in c.execute("SELECT DISTINCT report_type FROM reports ORDER BY report_type").fetchall()]
+
+        # NEW dept dropdown from projects
+        depts = projects
+
+        cards = summary_cards(c)
+
+    return render_template(
+        "dashboard.html",
+        active="dashboard",
+        reports=reports,
+        projects=projects,
+        weeks=weeks,
+        owners=owners,
+        types=types,
+        depts=depts,          # NEW
+        cards=cards
+    )
+
+✅ What this gives you:
+	•	search nfpe finds it even if it’s inside stored path / filename
+	•	selecting dept filters only those folder-based reports
+	•	month/date range filters reports by updated date
+
+⸻
+
+3) Frontend: add filters to Dashboard HTML
+
+In your dashboard.html search card, add:
+
+✅ Add these new inputs inside your existing form:
+
+<div>
+  <label class="muted">Department (Folder)</label>
+  <select name="dept">
+    <option value="">All</option>
+    {% for d in depts %}
+      <option value="{{d}}" {% if request.args.get('dept','')==d %}selected{% endif %}>{{d}}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div>
+  <label class="muted">Month</label>
+  <input type="month" name="month" value="{{ request.args.get('month','') }}">
+</div>
+
+<div>
+  <label class="muted">From</label>
+  <input type="date" name="from" value="{{ request.args.get('from','') }}">
+</div>
+
+<div>
+  <label class="muted">To</label>
+  <input type="date" name="to" value="{{ request.args.get('to','') }}">
+</div>
+
+✅ That’s it. No JS needed. Works like normal GET filters.
+
+⸻
+
+4) Optional (better): Search results should show matched files too
+
+If you want search to show file name + click open, then on the dashboard you can also display file count per report:
+
+Change SELECT to include COUNT(f.id) as file_count and GROUP BY report_id.
+If you want that, tell me and I’ll give exact 2-line modification.
+
+⸻
+
+5) One important thing
+
+Your filters will only work properly if:
+	•	updated_at is always populated (it is)
+	•	your importer sets project = “NPFE REPORTS” / “NPFS REPORTS” (folder name) ✅
+
+⸻
+
+If you paste your current dashboard() function (only that part), I’ll edit it exactly line-by-line so you can copy-paste with zero confusion.
