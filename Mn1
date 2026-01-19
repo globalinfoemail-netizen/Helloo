@@ -1,0 +1,56 @@
+Got it — your date filter won’t work until you have an actual date column to filter on.
+
+Right now your reports table in v2 has:
+	•	created_at (string)
+	•	updated_at (string)
+
+✅ We will filter using updated_at (best for “latest changes reflected”).
+
+1) Add these 2 inputs in dashboard.html (inside your filter form)
+
+<div>
+  <label class="muted">From date</label>
+  <input type="date" name="from_date" value="{{ request.args.get('from_date','') }}">
+</div>
+
+<div>
+  <label class="muted">To date</label>
+  <input type="date" name="to_date" value="{{ request.args.get('to_date','') }}">
+</div>
+
+2) Add this EXACT block in app.py inside dashboard() (after reading args)
+
+Add these lines near the top:
+
+from_date = request.args.get("from_date", "").strip()
+to_date = request.args.get("to_date", "").strip()
+
+3) Add these filters in SQL building (IMPORTANT)
+
+Put this in your dashboard() after other filters:
+
+if from_date:
+    sql += " AND date(r.updated_at) >= date(?)"
+    params.append(from_date)
+
+if to_date:
+    sql += " AND date(r.updated_at) <= date(?)"
+    params.append(to_date)
+
+4) WHY it was not working
+	•	HTML didn’t send from/to dates (no inputs)
+	•	Backend didn’t read them (request.args)
+	•	SQL didn’t filter using date() conversion
+
+5) Quick test (do exactly)
+	1.	Open dashboard
+	2.	Choose From = today
+	3.	Choose To = today
+	4.	Click Apply
+✅ You should see only reports updated today.
+
+⸻
+
+If you want “Month filter” also, tell me what format you want:
+	•	dropdown like Jan 2026
+	•	or automatic based on From/To only
