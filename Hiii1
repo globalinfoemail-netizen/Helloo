@@ -1,0 +1,174 @@
+Got it — don’t change your whole project. You only need to add one working KPI dropdown API + small update in KPI page JS so the dropdown stops showing Loading… and shows all KPIs.
+
+Below is the minimum change set (copy-paste exact).
+
+⸻
+
+✅ 1) In your existing app.py add this API (ONLY)
+
+Add this exact route (anywhere below your app = Flask(__name__)):
+
+@app.route("/api/kpi/dropdown", methods=["GET"])
+def api_kpi_dropdown():
+    init_db(seed=True)  # make sure kpi_master is created + seeded
+
+    dept = (request.args.get("department") or "").strip()
+    section = (request.args.get("section") or "").strip()
+    search = (request.args.get("search") or "").strip().lower()
+
+    sql = """
+        SELECT kpi_id, department, section, kpi_key, kpi_name, updated_at
+        FROM kpi_master
+        WHERE 1=1
+    """
+    params = []
+
+    if dept:
+        sql += " AND department=?"
+        params.append(dept)
+
+    if section:
+        sql += " AND section=?"
+        params.append(section)
+
+    if search:
+        sql += " AND (lower(kpi_name) LIKE ? OR lower(kpi_key) LIKE ? OR lower(section) LIKE ?)"
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
+
+    sql += " ORDER BY department, section, kpi_name"
+
+    with connect() as c:
+        rows = c.execute(sql, params).fetchall()
+
+    return jsonify([dict(r) for r in rows])
+
+✅ This endpoint returns a clean KPI list for dropdown.
+
+⸻
+
+✅ 2) Ensure your KPI detail endpoint exists (you already have it)
+
+You already have:
+
+@app.route("/api/kpi/defs/<int:kpi_id>", methods=["GET"])
+def get_kpi_def(kpi_id: int):
+    ...
+
+✅ Keep that.
+
+⸻
+
+✅ 3) Update ONLY the KPI dropdown JS in kpi_library.html
+
+In your KPI library page, find the script that loads KPIs.
+Replace ONLY the dropdown loading part with this minimal working version:
+
+<script>
+async function loadKpiDropdown(){
+  const kpiSelect = document.getElementById("kpiSelect");
+  const deptSelect = document.getElementById("deptSelect"); // if you have it
+  const dept = deptSelect ? deptSelect.value : "";
+
+  kpiSelect.innerHTML = `<option value="">Loading...</option>`;
+
+  const url = dept
+    ? `/api/kpi/dropdown?department=${encodeURIComponent(dept)}`
+    : `/api/kpi/dropdown`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    kpiSelect.innerHTML = `<option value="">Error loading KPIs (${res.status})</option>`;
+    return;
+  }
+
+  const data = await res.json();
+  kpiSelect.innerHTML = `<option value="">-- Select KPI --</option>`;
+
+  data.forEach(k => {
+    const opt = document.createElement("option");
+    opt.value = k.kpi_id;
+    opt.textContent = `${k.department} • ${k.section} • ${k.kpi_name}`;
+    kpiSelect.appendChild(opt);
+  });
+
+  if (data.length === 0){
+    kpiSelect.innerHTML = `<option value="">No KPIs found</option>`;
+  }
+}
+
+async function showKpiDetails(){
+  const kpiSelect = document.getElementById("kpiSelect");
+  const box = document.getElementById("kpiDetails");
+  const id = kpiSelect.value;
+
+  if (!id){
+    box.innerHTML = `<div class="muted">Select a KPI to view formula.</div>`;
+    return;
+  }
+
+  const res = await fetch(`/api/kpi/defs/${id}`);
+  if (!res.ok){
+    box.innerHTML = `<div class="muted">Error loading KPI detail (${res.status})</div>`;
+    return;
+  }
+  const k = await res.json();
+
+  box.innerHTML = `
+    <h3 style="margin:0;">${k.kpi_name}</h3>
+    <div class="muted">${k.department} • ${k.section} • ${k.kpi_key}</div>
+    <div style="margin-top:10px;">
+      <div class="muted">Formula</div>
+      <div style="font-weight:700;">${k.formula_display}</div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="muted">Rules</div>
+      <div>🟢 ${k.green_rule || "-"}</div>
+      <div>🟠 ${k.amber_rule || "-"}</div>
+      <div>🔴 ${k.red_rule || "-"}</div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="muted">Notes</div>
+      <div>${k.calc_notes || "-"}</div>
+    </div>
+  `;
+}
+
+// hook up events
+document.addEventListener("DOMContentLoaded", () => {
+  loadKpiDropdown();
+
+  const deptSelect = document.getElementById("deptSelect");
+  if (deptSelect) deptSelect.addEventListener("change", loadKpiDropdown);
+
+  document.getElementById("kpiSelect").addEventListener("change", showKpiDetails);
+});
+</script>
+
+✅ This fixes the “Loading…” forever issue.
+
+⸻
+
+✅ 4) Add these IDs in your HTML (if missing)
+
+Your KPI page must have these:
+
+<select id="deptSelect"> ... </select>   <!-- optional -->
+<select id="kpiSelect"></select>         <!-- required -->
+<div id="kpiDetails"></div>              <!-- required -->
+
+If you don’t have deptSelect, delete those lines from JS (I already made it optional).
+
+⸻
+
+✅ 5) Quick check (1 minute) to confirm backend works
+
+Open in browser (while Flask running):
+	•	http://127.0.0.1:5000/api/kpi/dropdown
+You should see JSON list.
+
+If you see 404 → you didn’t add route correctly or server not restarted.
+If you see 500 → DB table not created/seeded → init_db(seed=True) must exist.
+
+⸻
+
+If you paste your current kpi_library.html snippet where you define the dropdown, I’ll tell you the exact 3 lines you need to replace (without touching anything else).
